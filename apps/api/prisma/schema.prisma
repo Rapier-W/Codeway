@@ -1,4 +1,4 @@
-// 同路行后端数据库基线（PostgreSQL）
+// Codeway后端数据库基线（PostgreSQL）
 // 容量规则：Trip.capacity 只能是 3 或 4，且总人数含发单人。
 // Prisma schema 无法表达 CHECK 约束，3|4 校验在应用层 DTO/事务中强制，
 // 后续迁移可用原生 SQL 追加 CHECK (capacity IN (3, 4))。

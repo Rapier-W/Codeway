@@ -1,4 +1,4 @@
-# TEAM-TASKS.md — 同路行当前任务状态
+# TEAM-TASKS.md — Codeway当前任务状态
 
 > Codex 统筹者每次会话开始必读；任务分配或状态变化时追加/更新记录，保留历史。
 

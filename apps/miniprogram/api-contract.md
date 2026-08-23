@@ -1,4 +1,4 @@
-# 同路行 API 契约（MVP）
+# Codeway API 契约（MVP）
 
 基础地址：`API_BASE_URL`
 
