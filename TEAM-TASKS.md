@@ -12,7 +12,7 @@
 
 ## 当前状态
 
-**Web/PWA 前端开发进行中。** Task 1–2 基础工程与 Task 3 行程发现/发布/申请页面已完成，下一步进入聊天、全员确认、我的出行、叫车、订单和评价路径。
+**Web/PWA 前端与独立后端基线开发进行中。** 前端 Task 1–6 已完成；后端 Task 1（NestJS + Prisma + PostgreSQL 骨架）已完成，下一步进入行程容量与加入接口。
 
 ## 任务分配表
 
@@ -21,6 +21,14 @@
 | BOOT-20260823-01 | 初始化 Git、建立项目协同规则和代理路由 | Codex | 已完成 | `AGENTS.md`、`TEAM-TASKS.md`、Git 仓库 | 2026-08-23 |
 | WEB-20260824-01 | Vue 3 + Vite + Vant + Pinia + PWA 基础工程、契约 Adapter 与 Mock | Codex + 实现代理 | 已完成 | `apps/web/`、`docs/superpowers/specs/2026-08-24-web-pwa-design.md`、`docs/superpowers/plans/2026-08-24-web-pwa.md` | 2026-08-24 |
 | WEB-20260824-02 | 登录、行程列表/筛选、发布、详情、加入申请与访问保护 | Codex + Reasonix 复核 | 已完成 | `apps/web/src/views/`、`apps/web/src/components/`、`apps/web/src/api/`、`apps/web/src/router/` | 2026-08-24 |
+| DEV-20260823-01 | Task 1：NestJS + Prisma 后端骨架与数据库基线 | Kimi K3 → Codex | 已完成 | `apps/api/`、`docker-compose.yml`、`.env.example` | 2026-08-23 |
+| DEV-20260823-01 | Task 1：NestJS + Prisma 后端骨架与数据库基线 | Kimi K3 → Codex | 已完成 | `apps/api/`、`docker-compose.yml`、`.env.example` | 2026-08-23 |
+
+## Task 1 后端审查记录
+
+- Kimi 提交：`260c030 kimi: scaffold api and database baseline`。
+- Codex 验证：健康检查测试、Nest build、Prisma schema validate 通过；报告：`.superpowers/sdd/2026-08-23-backend-trip-flow/task-1-report.md`。
+- 剩余风险：容量约束和状态事务留给后端 Task 2/3；生产 PostgreSQL 部署方式仍待上线前确定。
 
 ## 子任务模板
 
