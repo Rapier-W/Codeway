@@ -1,0 +1,270 @@
+// 同路行后端数据库基线（PostgreSQL）
+// 容量规则：Trip.capacity 只能是 3 或 4，且总人数含发单人。
+// Prisma schema 无法表达 CHECK 约束，3|4 校验在应用层 DTO/事务中强制，
+// 后续迁移可用原生 SQL 追加 CHECK (capacity IN (3, 4))。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  phone           String?  @unique
+  phoneVerified   Boolean  @default(false) // 未完成手机号验证只能浏览
+  studentVerified Boolean  @default(false) // 学生认证仅信任标签，不拦截
+  nickname        String?
+  gender          String?
+  creditScore     Int      @default(100)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdTrips  Trip[]             @relation("TripCreator")
+  memberships   TripMember[]
+  confirmations TripConfirmation[]
+
+  @@map("users")
+}
+
+model Trip {
+  id          String   @id @default(uuid())
+  creatorId   String
+  creator     User     @relation("TripCreator", fields: [creatorId], references: [id])
+  origin      String
+  destination String
+  departTime  DateTime
+  capacity    Int // 只允许 3 或 4，总人数含发单人；应用层强制
+  feePlan     Json? // 金额一律整数分
+  femaleOnly  Boolean  @default(false)
+  status      String   @default("RECRUITING") // 招募中 → 双向确认中 → 已成团 → 待叫车 → 已叫车 → 行程结束待结算 → 结算完成 → 待评价 → 已归档
+  version     Int      @default(0) // 乐观锁，状态变更必须校验
+  disputeLocked Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members         TripMember[]
+  confirmations   TripConfirmation[]
+  recommendations RecommendationDecision[]
+  rideRecords     RideRecord[]
+  vehicleUpdates  VehicleUpdate[]
+  fareOrders      FareOrder[]
+  sosEvents       SosEvent[]
+  reviews         Review[]
+  reports         Report[]
+
+  @@index([departTime]) // 列表按 depart_time ASC
+  @@map("trips")
+}
+
+model TripMember {
+  id          String   @id @default(uuid())
+  tripId      String
+  trip        Trip     @relation(fields: [tripId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  role        String   @default("MEMBER") // CREATOR | MEMBER
+  memberCount Int      @default(1) // 该成员占用座位数：发单人=1，加入者=1 或 2
+  joinRequestKey String? @unique // 客户端请求幂等键
+  joinedAt    DateTime @default(now())
+
+  confirmations TripConfirmation[]
+
+  @@unique([tripId, userId]) // 幂等：同一用户在同一行程只有一条成员记录
+  @@index([tripId, joinRequestKey])
+  @@map("trip_members")
+}
+
+model TripConfirmation {
+  id             String      @id @default(uuid())
+  tripId         String
+  trip           Trip        @relation(fields: [tripId], references: [id])
+  memberId       String
+  member         TripMember  @relation(fields: [memberId], references: [id])
+  userId         String
+  user           User        @relation(fields: [userId], references: [id])
+  status         String      @default("CONFIRMED") // CONFIRMED | WITHDRAWN | VOID（回退作废）
+  confirmedAt    DateTime    @default(now())
+  retractUntil   DateTime? // 最后一名成员确认开启的 15 秒反悔窗口
+  idempotencyKey String?     @unique // 重复确认幂等
+  createdAt      DateTime    @default(now())
+
+  @@map("trip_confirmations")
+}
+
+model RecommendationDecision {
+  id        String   @id @default(uuid())
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id])
+  reasons   String[] // 白名单：TIME_CLOSE | RELIABLE | VERIFIED | OPEN_SLOT，最多 3 个，不影响排序
+  decidedAt DateTime @default(now())
+
+  @@map("recommendation_decisions")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  tripId    String?
+  actorId   String?
+  action    String // confirm | form-group | withdraw | rollback | duplicate-request 等
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([tripId])
+  @@map("audit_logs")
+}
+
+model RideRecord {
+  id          String   @id @default(uuid())
+  tripId      String
+  trip        Trip     @relation(fields: [tripId], references: [id])
+  requestedBy String
+  platform    String
+  mode        String   @default("MANUAL_FALLBACK")
+  status      String   @default("WAITING_RIDE")
+  createdAt   DateTime @default(now())
+  @@index([tripId])
+}
+
+model VehicleUpdate {
+  id        String   @id @default(uuid())
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id])
+  updatedBy String
+  plate     String
+  model     String?
+  color     String?
+  platform  String?
+  createdAt DateTime @default(now())
+  @@index([tripId])
+}
+
+model FareOrder {
+  id                   String   @id @default(uuid())
+  tripId               String   @unique
+  trip                 Trip     @relation(fields: [tripId], references: [id])
+  submittedBy          String
+  totalAmountCents     Int
+  screenshotKey        String
+  screenshotMimeType   String
+  screenshotSizeBytes  Int
+  status               String   @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION | CONFIRMED | DISPUTED | MANUAL_REVIEW
+  createdAt            DateTime @default(now())
+  confirmedAt          DateTime?
+  updatedAt            DateTime @updatedAt
+  disputes             FareDispute[]
+  confirmations        FareOrderConfirmation[]
+  paymentMarks         PaymentMark[]
+  @@index([status])
+}
+
+model FareDispute {
+  id          String   @id @default(uuid())
+  fareOrderId String
+  fareOrder   FareOrder @relation(fields: [fareOrderId], references: [id])
+  raisedBy    String
+  reason      String
+  status      String   @default("OPEN")
+  createdAt   DateTime @default(now())
+}
+
+model FareOrderConfirmation {
+  id          String   @id @default(uuid())
+  fareOrderId String
+  fareOrder   FareOrder @relation(fields: [fareOrderId], references: [id])
+  userId      String
+  confirmedAt DateTime @default(now())
+  @@unique([fareOrderId, userId])
+}
+
+model PaymentMark {
+  id          String   @id @default(uuid())
+  fareOrderId String
+  fareOrder   FareOrder @relation(fields: [fareOrderId], references: [id])
+  userId      String
+  amountCents Int?
+  status      String   @default("MARKED")
+  markedAt    DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@unique([fareOrderId, userId])
+}
+
+model EmergencyContact {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  phone     String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  @@index([userId])
+}
+
+model SosEvent {
+  id        String   @id @default(uuid())
+  tripId    String
+  userId    String
+  latitude  Float?
+  longitude Float?
+  status    String   @default("RECORDED")
+  createdAt DateTime @default(now())
+  trip      Trip     @relation(fields: [tripId], references: [id])
+  @@index([tripId])
+}
+
+model NotificationEvent {
+  id        String   @id @default(uuid())
+  type      String
+  tripId    String?
+  userId    String?
+  payload   Json
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+  @@index([tripId])
+}
+
+model Review {
+  id            String   @id @default(uuid())
+  tripId        String
+  trip          Trip     @relation(fields: [tripId], references: [id])
+  reviewerId    String
+  targetUserId  String
+  punctuality   Int
+  safety        Int
+  politeness    Int
+  communication Int
+  comment       String?
+  anonymous     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  @@unique([tripId, reviewerId, targetUserId])
+}
+
+model Report {
+  id           String   @id @default(uuid())
+  tripId       String?
+  trip          Trip?   @relation(fields: [tripId], references: [id])
+  reporterId    String
+  targetUserId  String?
+  type          String
+  description   String
+  evidenceKey   String?
+  status        String   @default("OPEN")
+  createdAt     DateTime @default(now())
+  @@index([tripId])
+}
+
+model AnalyticsEvent {
+  id           String   @id @default(uuid())
+  userId       String?
+  eventKey     String
+  eventType    String
+  tripId       String?
+  reasonCodes  String[]
+  ruleVersion  String
+  payload      Json
+  createdAt    DateTime @default(now())
+  @@unique([eventKey])
+  @@index([tripId])
+}
