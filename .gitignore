@@ -16,3 +16,6 @@ coverage/
 # misc
 .DS_Store
 *.log
+# 内部协作/部署文档,不上传仓库
+AGENTS.md
+DEPLOYMENT.md
