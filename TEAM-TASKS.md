@@ -29,6 +29,12 @@
 - Codex 验证：健康检查测试、Nest build、Prisma schema validate 通过；报告：`.superpowers/sdd/2026-08-23-backend-trip-flow/task-1-report.md`。
 - 剩余风险：容量约束和状态事务留给后端 Task 2/3；生产 PostgreSQL 部署方式仍待上线前确定。
 
+## DEV-20260824-02 行程容量与加入接口
+- 状态：已进入实现
+- 目标：按 `docs/superpowers/specs/2026-08-24-trip-flow-api.md` 实现发布、列表、详情、加入和推荐理由顺序。
+- 约束：手机号验证、3/4 人容量、1/2 人加入、事务锁、幂等和未来行程排序必须由服务端保证。
+- 验收：单元/e2e 测试、Prisma migration/schema validate、Nest build；完成后由独立代理复核。
+
 ## 子任务模板
 
 `目标｜输入文件｜产出文件｜不可修改范围｜验收命令｜完成标准｜状态回写`
