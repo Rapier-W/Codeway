@@ -30,10 +30,13 @@
 - 剩余风险：容量约束和状态事务留给后端 Task 2/3；生产 PostgreSQL 部署方式仍待上线前确定。
 
 ## DEV-20260824-02 行程容量与加入接口
-- 状态：已进入实现
+- 状态：已完成实现，待真实数据库 migration 验证
 - 目标：按 `docs/superpowers/specs/2026-08-24-trip-flow-api.md` 实现发布、列表、详情、加入和推荐理由顺序。
 - 约束：手机号验证、3/4 人容量、1/2 人加入、事务锁、幂等和未来行程排序必须由服务端保证。
-- 验收：单元/e2e 测试、Prisma migration/schema validate、Nest build；完成后由独立代理复核。
+- 产出：`apps/api/src/trips/`、`apps/api/prisma/migrations/20260824190000_trip_domain_checks/migration.sql`。
+- 验证：8 个测试套件/28 个测试通过；Nest build、Prisma generate、Prisma validate、diff check 通过；独立代理复核实现。
+- 未完成：Docker daemon 当前未运行，真实 PostgreSQL migration 尚未执行；本地 PostgreSQL 服务存在但连接凭据和客户端工具未配置，不能猜测连接参数。
+- 注意：实现提交同时包含此前已存在的 platform/fare/confirmation 模块，已纳入当前 API build/test 验证，后续需单独做范围审查。
 
 ## 子任务模板
 
