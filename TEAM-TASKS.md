@@ -37,3 +37,8 @@
 - Kimi CLI 凭据轮换后改用环境变量注入；不得将新凭据写入仓库。
 - 域名、HTTPS、小程序服务器域名、七牛云 VM 规格和备份策略在部署任务开始前补齐。
 
+# Task 3 frontend status
+
+- Commit `ee77032`: login, trip discovery/filtering, publish validation, detail and join sheet.
+- Verification: targeted Vitest 2 files / 2 tests passed; `npm run typecheck` passed; `npm run build` passed with PWA assets; `git diff --check` passed.
+- Note: targeted TripsView test emits a Vue router injection warning because it intentionally mounts without a router; production build is clean.
