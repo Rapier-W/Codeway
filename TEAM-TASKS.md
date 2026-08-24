@@ -22,6 +22,7 @@
 | WEB-20260824-01 | Vue 3 + Vite + Vant + Pinia + PWA 基础工程、契约 Adapter 与 Mock | Codex + 实现代理 | 已完成 | `apps/web/`、`docs/superpowers/specs/2026-08-24-web-pwa-design.md`、`docs/superpowers/plans/2026-08-24-web-pwa.md` | 2026-08-24 |
 | WEB-20260824-02 | 登录、行程列表/筛选、发布、详情、加入申请与访问保护 | Codex + Reasonix 复核 | 已完成 | `apps/web/src/views/`、`apps/web/src/components/`、`apps/web/src/api/`、`apps/web/src/router/` | 2026-08-24 |
 | DEV-20260823-01 | Task 1：NestJS + Prisma 后端骨架与数据库基线 | Kimi K3 → Codex | 已完成 | `apps/api/`、`docker-compose.yml`、`.env.example` | 2026-08-23 |
+| DEV-20260823-02 | Task 2:行程域与容量安全加入流程(发布/列表/容量/幂等) | Codex + Reasonix 复核 | 已完成 | `apps/api/src/trips/`、`apps/api/test/trips.e2e-spec.ts`、`test/real-capacity-concurrency.e2e-spec.ts` | 2026-08-24 |
 
 ## Task 1 后端审查记录
 
