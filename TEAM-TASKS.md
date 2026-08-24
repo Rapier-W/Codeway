@@ -22,11 +22,10 @@
 | WEB-20260824-01 | Vue 3 + Vite + Vant + Pinia + PWA 基础工程、契约 Adapter 与 Mock | Codex + 实现代理 | 已完成 | `apps/web/`、`docs/superpowers/specs/2026-08-24-web-pwa-design.md`、`docs/superpowers/plans/2026-08-24-web-pwa.md` | 2026-08-24 |
 | WEB-20260824-02 | 登录、行程列表/筛选、发布、详情、加入申请与访问保护 | Codex + Reasonix 复核 | 已完成 | `apps/web/src/views/`、`apps/web/src/components/`、`apps/web/src/api/`、`apps/web/src/router/` | 2026-08-24 |
 | DEV-20260823-01 | Task 1：NestJS + Prisma 后端骨架与数据库基线 | Kimi K3 → Codex | 已完成 | `apps/api/`、`docker-compose.yml`、`.env.example` | 2026-08-23 |
-| DEV-20260823-01 | Task 1：NestJS + Prisma 后端骨架与数据库基线 | Kimi K3 → Codex | 已完成 | `apps/api/`、`docker-compose.yml`、`.env.example` | 2026-08-23 |
 
 ## Task 1 后端审查记录
 
-- Kimi 提交：`260c030 kimi: scaffold api and database baseline`。
+- 源分支提交：`260c030 kimi: scaffold api and database baseline`；当前分支合并提交：`a764b64`。
 - Codex 验证：健康检查测试、Nest build、Prisma schema validate 通过；报告：`.superpowers/sdd/2026-08-23-backend-trip-flow/task-1-report.md`。
 - 剩余风险：容量约束和状态事务留给后端 Task 2/3；生产 PostgreSQL 部署方式仍待上线前确定。
 

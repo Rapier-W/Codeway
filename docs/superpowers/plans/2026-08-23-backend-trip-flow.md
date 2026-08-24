@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js 22+, TypeScript, NestJS, Prisma, PostgreSQL, Jest, Supertest, Docker Compose。
 
-**Spec:** `E:\night-ride\docs\02-功能清单.md`、`E:\night-ride\docs\03-页面设计.md`、`E:\night-ride\docs\07-系统架构方案.md`
+**Spec:** `docs/02-功能清单.md`、`docs/03-页面设计.md`、`docs/07-系统架构方案.md`
 
 ## Global Constraints
 
@@ -93,11 +93,10 @@
 - [ ] **Step 4: Run focused tests plus the complete API test suite; verify no duplicate group formation or invalid state transition.**
 - [ ] **Step 5: Commit with `codex: enforce confirmation state machine`.**
 
-### Task 4: Minimal client contract and developer documentation
+### Task 4: Web/PWA client contract and developer documentation
 
 **Files:**
-- Create: `apps/miniprogram/README.md`
-- Create: `apps/miniprogram/api-contract.md`
+- Create: `apps/web/api-contract.md`
 - Create: `docs/superpowers/specs/2026-08-23-trip-flow-api.md`
 - Modify: `TEAM-TASKS.md`
 
@@ -108,5 +107,5 @@
 
 ## Deferred after this plan
 
-Third-party ride adapters, vehicle sync, Kodo order screenshots, fee disputes, SOS, reviews, reporting, WebSocket delivery, and the native WeChat mini-program UI are separate bounded plans. They must not be silently folded into these tasks.
+Third-party ride adapters, vehicle sync, Kodo order screenshots, fee disputes, SOS, reviews, reporting, WebSocket delivery, and any future native WeChat mini-program client are separate bounded plans. They must not be silently folded into these tasks.
 
