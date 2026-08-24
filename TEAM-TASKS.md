@@ -38,6 +38,14 @@
 - 未完成：Docker daemon 当前未运行，真实 PostgreSQL migration 尚未执行；本地 PostgreSQL 服务存在但连接凭据和客户端工具未配置，不能猜测连接参数。
 - 注意：实现提交同时包含此前已存在的 platform/fare/confirmation 模块，已纳入当前 API build/test 验证，后续需单独做范围审查。
 
+### DEV-20260824-02 真实 PostgreSQL migration 验证
+
+- 状态：已完成
+- 目标：补齐 Prisma 初始建表 migration，并在本机 Docker PostgreSQL `localhost:5433` 上执行真实 migration 链。
+- 产出：`apps/api/prisma/migrations/20260824180000_initial_schema/migration.sql`、`apps/api/prisma/migrations/migration_lock.toml`。
+- 验证：`npx prisma migrate status` 显示数据库为 up to date；`npx prisma migrate deploy` 成功应用 `20260824180000_initial_schema` 与 `20260824190000_trip_domain_checks`；`npx prisma validate` 通过；`git diff --check` 通过。
+- 数据库边界：使用 `apps/api/.env` 中的本机连接串（端口 5433），未提交 `.env` 或任何凭据。
+
 ## DEV-20260824-03 Web/PWA API 契约文档
 - 状态：已完成
 - 产出：`apps/web/api-contract.md`，记录已实现后端路径、前端字段映射和真实供应商接入边界。
