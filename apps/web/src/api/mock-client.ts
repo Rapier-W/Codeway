@@ -62,18 +62,23 @@ export class MockApiClient implements ApiClient {
   async confirmTrip(tripId: string, _idempotencyKey: string): Promise<Trip> {
     this.throwConfiguredFailure('confirmTrip')
     const trip = this.findTripReference(tripId)
-    if (trip.status !== 'RECRUITING' || trip.activeMemberCount !== trip.capacity - 1) {
+    if (!['RECRUITING','CONFIRMING'].includes(trip.status) || trip.activeMemberCount !== trip.capacity - 1) {
       throw new ApiError('TRIP_NOT_READY', '尚未达到全员确认条件，请刷新行程状态', 409)
     }
-    trip.status = 'FORMED'
+    trip.status = trip.status === 'RECRUITING' ? 'CONFIRMING' : 'FORMED'
+    trip.confirmedCount = (trip.confirmedCount ?? 0) + 1
+    if (trip.status === 'FORMED') { trip.retractUntil = new Date(Date.now() + 15000).toISOString(); trip.confirmationId = `confirmation-${tripId}` }
     return structuredClone(trip)
   }
 
   async withdrawConfirmation(tripId: string, _confirmationId: string, _idempotencyKey: string): Promise<Trip> {
     this.throwConfiguredFailure('withdrawConfirmation')
     const trip = this.findTripReference(tripId)
+    if (!_confirmationId) throw new ApiError('CONFIRMATION_ID_REQUIRED', '缺少确认记录，无法撤回', 400)
     if (trip.status !== 'FORMED') throw new ApiError('STATE_CONFLICT', '当前状态无法撤回确认，请刷新行程状态', 409)
+    if (trip.retractUntil && new Date(trip.retractUntil).getTime() <= Date.now()) throw new ApiError('RETRACT_WINDOW_EXPIRED', '反悔窗口已结束', 409)
     trip.status = 'RECRUITING'
+    trip.confirmedCount = 0; trip.retractUntil = undefined; trip.confirmationId = undefined
     return structuredClone(trip)
   }
   async createSosEvent(_input: SosInput, _idempotencyKey: string): Promise<{ id: string; createdAt: string }> { return { id: 'sos-1', createdAt: new Date().toISOString() } }

@@ -29,6 +29,9 @@ export interface Trip {
   activeMemberCount: number
   status: TripStatus
   recommendationReasons: Array<'TIME_CLOSE' | 'RELIABLE' | 'VERIFIED' | 'AVAILABLE'>
+  confirmedCount?: number
+  retractUntil?: string
+  confirmationId?: string
 }
 
 export interface JoinTripInput { memberCount: 1 | 2 }

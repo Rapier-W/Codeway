@@ -37,11 +37,15 @@ describe('MockApiClient', () => {
     await expect(client.listTrips()).rejects.toMatchObject({ code: 'NETWORK_ERROR', status: 0 })
   })
 
-  it('forms a confirming trip and returns it to recruiting when confirmation is withdrawn', async () => {
+  it('requires all member confirmations then allows a 15 second withdrawal', async () => {
     const client = new MockApiClient()
-
-    await expect(client.confirmTrip('trip-2', 'confirm-1')).resolves.toMatchObject({ status: 'FORMED' })
-    await expect(client.withdrawConfirmation('trip-2', 'confirmation-1', 'withdraw-1')).resolves.toMatchObject({ status: 'RECRUITING' })
+    const first = await client.confirmTrip('trip-2', 'confirm-1')
+    expect(first).toMatchObject({ status: 'CONFIRMING', confirmedCount: 1 })
+    const formed = await client.confirmTrip('trip-2', 'confirm-2')
+    expect(formed.status).toBe('FORMED')
+    expect(formed.retractUntil).toBeTruthy()
+    await expect(client.withdrawConfirmation('trip-2', '', 'withdraw-1')).rejects.toMatchObject({ code: 'CONFIRMATION_ID_REQUIRED' })
+    await expect(client.withdrawConfirmation('trip-2', formed.confirmationId!, 'withdraw-1')).resolves.toMatchObject({ status: 'RECRUITING', confirmedCount: 0 })
   })
 
   it('rejects confirmation before a trip is full', async () => {
