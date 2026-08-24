@@ -8,7 +8,7 @@ export const router = createRouter({
   routes: [
     { path: '/', redirect: '/trips' },
     { path: '/', component: AppShell, children: [] },
-    { path: '/login', component: Placeholder('登录') },
+    { path: '/login', component: Placeholder('登录'), name: 'login' },
     { path: '/trips', component: Placeholder('发现行程'), name: 'trips' },
     { path: '/trips/create', component: Placeholder('发布行程'), name: 'trip-create' },
     { path: '/trips/:id', component: Placeholder('行程详情'), name: 'trip-detail' },

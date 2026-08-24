@@ -6,9 +6,21 @@ const sampleTrips: Trip[] = [
   { id: 'trip-full', origin: '东站', destination: '西站', departureAt: '2026-08-25T21:00:00+08:00', capacity: 3, activeMemberCount: 3, status: 'RECRUITING', recommendationReasons: [] },
 ]
 
+type MockOperation = 'listTrips' | 'joinTrip' | 'confirmTrip' | 'withdrawConfirmation'
+type MockFailure = 'network' | 'conflict'
+
+export interface MockApiOptions {
+  failures?: Partial<Record<MockOperation, MockFailure>>
+}
+
 export class MockApiClient implements ApiClient {
   private readonly trips = structuredClone(sampleTrips)
   private readonly joins = new Map<string, JoinRequest>()
+  private readonly failures: Partial<Record<MockOperation, MockFailure>>
+
+  constructor(options: MockApiOptions = {}) {
+    this.failures = options.failures ?? {}
+  }
 
   async requestCode(_phone: string, _idempotencyKey: string): Promise<void> {}
 
@@ -18,6 +30,7 @@ export class MockApiClient implements ApiClient {
   }
 
   async listTrips(): Promise<Trip[]> {
+    this.throwConfiguredFailure('listTrips')
     return this.trips
       .filter((trip) => trip.status === 'RECRUITING' && trip.activeMemberCount < trip.capacity)
       .map((trip) => structuredClone(trip))
@@ -30,6 +43,7 @@ export class MockApiClient implements ApiClient {
   }
 
   async joinTrip(tripId: string, input: JoinTripInput, idempotencyKey: string): Promise<JoinRequest> {
+    this.throwConfiguredFailure('joinTrip')
     const existing = this.joins.get(idempotencyKey)
     if (existing) return structuredClone(existing)
     const trip = this.trips.find((candidate) => candidate.id === tripId)
@@ -42,13 +56,38 @@ export class MockApiClient implements ApiClient {
     return structuredClone(request)
   }
 
-  async confirmTrip(tripId: string, _idempotencyKey: string): Promise<Trip> { return this.findTrip(tripId) }
-  async withdrawConfirmation(tripId: string, _idempotencyKey: string): Promise<Trip> { return this.findTrip(tripId) }
+  async confirmTrip(tripId: string, _idempotencyKey: string): Promise<Trip> {
+    this.throwConfiguredFailure('confirmTrip')
+    const trip = this.findTripReference(tripId)
+    if (trip.status !== 'RECRUITING' || trip.activeMemberCount !== trip.capacity - 1) {
+      throw new ApiError('TRIP_NOT_READY', '尚未达到全员确认条件，请刷新行程状态', 409)
+    }
+    trip.status = 'FORMED'
+    return structuredClone(trip)
+  }
+
+  async withdrawConfirmation(tripId: string, _idempotencyKey: string): Promise<Trip> {
+    this.throwConfiguredFailure('withdrawConfirmation')
+    const trip = this.findTripReference(tripId)
+    if (trip.status !== 'FORMED') throw new ApiError('STATE_CONFLICT', '当前状态无法撤回确认，请刷新行程状态', 409)
+    trip.status = 'RECRUITING'
+    return structuredClone(trip)
+  }
   async createSosEvent(_input: SosInput, _idempotencyKey: string): Promise<{ id: string; createdAt: string }> { return { id: 'sos-1', createdAt: new Date().toISOString() } }
 
   private findTrip(tripId: string) {
+    return structuredClone(this.findTripReference(tripId))
+  }
+
+  private findTripReference(tripId: string) {
     const trip = this.trips.find((candidate) => candidate.id === tripId)
     if (!trip) throw new ApiError('TRIP_NOT_FOUND', '行程不存在', 404)
-    return structuredClone(trip)
+    return trip
+  }
+
+  private throwConfiguredFailure(operation: MockOperation) {
+    const failure = this.failures[operation]
+    if (failure === 'network') throw new ApiError('NETWORK_ERROR', '网络连接失败，请检查网络后重试', 0)
+    if (failure === 'conflict') throw new ApiError('STATE_CONFLICT', '行程状态已变化，请刷新后重试', 409)
   }
 }

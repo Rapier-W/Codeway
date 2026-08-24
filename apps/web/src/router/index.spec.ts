@@ -7,4 +7,8 @@ describe('app routes', () => {
       expect.arrayContaining(['/login', '/trips', '/trips/create', '/my-trips', '/profile']),
     )
   })
+
+  it('names every directly navigable route', () => {
+    expect(router.getRoutes().filter((route) => route.path !== '/').every((route) => Boolean(route.name))).toBe(true)
+  })
 })

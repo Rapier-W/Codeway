@@ -17,4 +17,32 @@ describe('MockApiClient', () => {
       code: 'TRIP_CAPACITY_EXCEEDED',
     })
   })
+
+  it('returns a typed state conflict when configured for a write operation', async () => {
+    const client = new MockApiClient({ failures: { joinTrip: 'conflict' } })
+
+    await expect(client.joinTrip('trip-1', { memberCount: 1 }, 'key-3')).rejects.toMatchObject({
+      code: 'STATE_CONFLICT',
+      status: 409,
+    })
+  })
+
+  it('returns a typed network error when configured', async () => {
+    const client = new MockApiClient({ failures: { listTrips: 'network' } })
+
+    await expect(client.listTrips()).rejects.toMatchObject({ code: 'NETWORK_ERROR', status: 0 })
+  })
+
+  it('forms a confirming trip and returns it to recruiting when confirmation is withdrawn', async () => {
+    const client = new MockApiClient()
+
+    await expect(client.confirmTrip('trip-2', 'confirm-1')).resolves.toMatchObject({ status: 'FORMED' })
+    await expect(client.withdrawConfirmation('trip-2', 'withdraw-1')).resolves.toMatchObject({ status: 'RECRUITING' })
+  })
+
+  it('rejects confirmation before a trip is full', async () => {
+    const client = new MockApiClient()
+
+    await expect(client.confirmTrip('trip-1', 'confirm-2')).rejects.toMatchObject({ code: 'TRIP_NOT_READY', status: 409 })
+  })
 })
