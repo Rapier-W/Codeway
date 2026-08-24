@@ -58,3 +58,14 @@
 - 状态：已完成（commit c5e12aa）
 - 产出：CONFIRMING 全员确认、FORMED 15秒反悔倒计时、confirmationId 撤回、争议/结算锁定、金额 >0 校验。
 - 验证：3 suites/9 tests passed；typecheck/build passed；diff check仅已修复末尾空行。
+
+## WEB-20260824-05 SOS 与个人页
+- 状态：已完成（commit dc1872d）
+- 产出：移动端长按 SOS 事件记录、手动拨打 110、紧急联系人引导、个人页入口。
+- 边界：不自动短信/报警，不保存精确位置；联系人当前为页面演示状态，持久化需后端契约。
+- 验证：专项测试、typecheck、build 通过；由独立实现代理完成。
+
+## WEB-20260824-06 集成验收
+- 状态：进行中
+- 当前证据：完整 Vitest 11 suites/20 tests passed；typecheck、生产 build（含 PWA manifest/sw）和 git diff --check 通过。
+- 剩余：页面连通性与聊天/评价反馈细节继续收敛；HTTP 路径仍需以后端 OpenAPI 最终契约对齐。
