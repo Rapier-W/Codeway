@@ -77,6 +77,10 @@ export class MockApiClient implements ApiClient {
     return structuredClone(trip)
   }
   async createSosEvent(_input: SosInput, _idempotencyKey: string): Promise<{ id: string; createdAt: string }> { return { id: 'sos-1', createdAt: new Date().toISOString() } }
+  async listMessages(_tripId: string) { return [{ id: 'msg-1', senderId: 'user-demo', text: '大家好，费用先按等额确认。', createdAt: new Date().toISOString() }] }
+  async sendMessage(_tripId: string, text: string, _idempotencyKey: string) { return { id: `msg-${Date.now()}`, senderId: 'user-demo', text, createdAt: new Date().toISOString() } }
+  async getOrder(orderId: string) { return { id: orderId, tripId: 'trip-1', disputed: false, settlementLocked: false, costShare: { mode: 'EQUAL' as const, amountCents: 1200, confirmed: false } } }
+  async submitReview(_input: import('./contracts').ReviewInput, _idempotencyKey: string) {}
 
   private findTrip(tripId: string) {
     return structuredClone(this.findTripReference(tripId))

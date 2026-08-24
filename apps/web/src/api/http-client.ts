@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip } from './contracts'
+import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type ChatMessage, type Order, type ReviewInput } from './contracts'
 
 export class HttpApiClient implements ApiClient {
   constructor(private readonly baseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api') {}
@@ -11,6 +11,10 @@ export class HttpApiClient implements ApiClient {
   confirmTrip(tripId: string, idempotencyKey: string) { return this.write<Trip>(`/trips/${tripId}/confirmations`, {}, idempotencyKey) }
   withdrawConfirmation(tripId: string, confirmationId: string, idempotencyKey: string) { return this.write<Trip>(`/trips/${tripId}/confirmations/${confirmationId}/withdraw`, {}, idempotencyKey) }
   createSosEvent(input: SosInput, idempotencyKey: string) { return this.write<{ id: string; createdAt: string }>('/sos-events', input, idempotencyKey) }
+  listMessages(tripId: string) { return this.request<ChatMessage[]>(`/trips/${encodeURIComponent(tripId)}/messages`) }
+  sendMessage(tripId: string, text: string, idempotencyKey: string) { return this.write<ChatMessage>(`/trips/${encodeURIComponent(tripId)}/messages`, { text }, idempotencyKey) }
+  getOrder(orderId: string) { return this.request<Order>(`/orders/${encodeURIComponent(orderId)}`) }
+  async submitReview(input: ReviewInput, idempotencyKey: string) { await this.write<void>('/reviews', input, idempotencyKey) }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await fetch(`${this.baseUrl}${path}`, { credentials: 'include', ...init })

@@ -35,6 +35,11 @@ export interface JoinTripInput { memberCount: 1 | 2 }
 export interface JoinRequest { id: string; tripId: string; memberCount: 1 | 2; status: JoinRequestStatus }
 export interface CreateTripInput { origin: string; destination: string; departureAt: string; capacity: 3 | 4 }
 export interface SosInput { tripId?: string; note?: string }
+export interface ChatMessage { id: string; senderId: string; text: string; createdAt: string }
+export interface CostShare { mode: 'EQUAL'|'FIXED'|'CUSTOM'; amountCents: number; confirmed: boolean }
+export interface Vehicle { plate: string; model?: string; color?: string }
+export interface Order { id: string; tripId: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare }
+export interface ReviewInput { orderId: string; dimensions: { punctuality:number; communication:number; safety:number; fairness:number }; comment?: string; anonymous: boolean }
 
 export interface ApiClient {
   requestCode(phone: string, idempotencyKey: string): Promise<void>
@@ -46,4 +51,8 @@ export interface ApiClient {
   confirmTrip(tripId: string, idempotencyKey: string): Promise<Trip>
   withdrawConfirmation(tripId: string, confirmationId: string, idempotencyKey: string): Promise<Trip>
   createSosEvent(input: SosInput, idempotencyKey: string): Promise<{ id: string; createdAt: string }>
+  listMessages(tripId: string): Promise<ChatMessage[]>
+  sendMessage(tripId: string, text: string, idempotencyKey: string): Promise<ChatMessage>
+  getOrder(orderId: string): Promise<Order>
+  submitReview(input: ReviewInput, idempotencyKey: string): Promise<void>
 }
