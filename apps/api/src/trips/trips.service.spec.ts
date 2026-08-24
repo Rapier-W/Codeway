@@ -92,4 +92,14 @@ describe('TripsService', () => {
       }),
     }));
   });
+
+  it('returns the same trip for a retried create idempotency key', async () => {
+    tx.user.findUnique.mockResolvedValue({ id: 'u1', phoneVerified: true });
+    const existing = { id: 't1', creatorId: 'u1', capacity: 3, status: 'RECRUITING', reasonCodes: [] };
+    tx.trip.findUnique.mockResolvedValue(existing);
+    await expect(service.create('u1', {
+      origin: 'A', destination: 'B', departTime: new Date(Date.now() + 3600000).toISOString(), capacity: 3,
+    } as any, 'create-key')).resolves.toEqual(existing);
+    expect(tx.trip.create).not.toHaveBeenCalled();
+  });
 });

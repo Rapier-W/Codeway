@@ -20,14 +20,21 @@ export class TripsService {
     return user;
   }
 
-  async create(userId: string, dto: CreateTripDto) {
+  async create(userId: string, dto: CreateTripDto, idempotencyKey?: string) {
     if (!dto.origin?.trim() || !dto.destination?.trim()) throw new BadRequestException('ORIGIN_AND_DESTINATION_REQUIRED');
     if (![3, 4].includes(Number(dto.capacity))) throw new BadRequestException('CAPACITY_MUST_BE_3_OR_4');
     const departTime = new Date(dto.departTime);
     if (Number.isNaN(departTime.getTime()) || departTime <= new Date()) throw new BadRequestException('DEPART_TIME_MUST_BE_FUTURE');
     return this.prisma.$transaction(async tx => {
       await this.requireVerified(userId, tx);
-      const trip = await tx.trip.create({ data: { creatorId: userId, origin: dto.origin, destination: dto.destination, departTime, capacity: Number(dto.capacity), feePlan: dto.feePlan as any, femaleOnly: Boolean(dto.femaleOnly), members: { create: { userId, role: 'CREATOR', memberCount: 1 } } }, include: { members: true } });
+      if (idempotencyKey) {
+        const existing = await tx.trip.findUnique({ where: { createRequestKey: idempotencyKey }, include: { members: true } });
+        if (existing) {
+          if (existing.creatorId !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+          return existing;
+        }
+      }
+      const trip = await tx.trip.create({ data: { creatorId: userId, origin: dto.origin, destination: dto.destination, departTime, capacity: Number(dto.capacity), feePlan: dto.feePlan as any, femaleOnly: Boolean(dto.femaleOnly), ...(idempotencyKey ? { createRequestKey: idempotencyKey } : {}), members: { create: { userId, role: 'CREATOR', memberCount: 1 } } }, include: { members: true } });
       return { ...trip, reasonCodes: [] };
     });
   }
@@ -101,7 +108,7 @@ export class TripsService {
     });
   }
 
-  async createTrip(userId: string, dto: CreateTripDto) { return this.create(userId, dto); }
+  async createTrip(userId: string, dto: CreateTripDto, idempotencyKey?: string) { return this.create(userId, dto, idempotencyKey); }
   async joinTrip(tripId: string, userId: string, dto: JoinTripDto, idempotencyKey?: string) {
     const result: any = await this.join(userId, tripId, dto, idempotencyKey);
     return result?.member ? result : { member: result };

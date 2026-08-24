@@ -5,7 +5,7 @@
   "description": "Tongluxing backend API (NestJS + Prisma + PostgreSQL)",
   "scripts": {
     "build": "nest build",
-    "start": "node dist/main.js",
+    "start": "node dist/src/main.js",
     "start:dev": "nest start --watch",
     "test": "jest",
     "prisma:validate": "prisma validate",

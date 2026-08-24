@@ -25,6 +25,16 @@ describe('PlatformService', () => {
     await expect(service.verifyPhone('u1', '13800000000')).resolves.toMatchObject({ phoneVerified: true });
   });
 
+  it('accepts the development verification code and upserts a verified user', async () => {
+    tx.user.upsert.mockResolvedValue({ id: 'dev-13800000000', phone: '13800000000', phoneVerified: true, nickname: '用户0000' });
+    await expect(service.verifyDevelopmentCode('13800000000', '123456')).resolves.toMatchObject({ id: 'dev-13800000000', phoneVerified: true });
+    expect(tx.user.upsert).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'dev-13800000000' }, create: expect.objectContaining({ phoneVerified: true }) }));
+  });
+
+  it('rejects an invalid development verification code', async () => {
+    await expect(service.verifyDevelopmentCode('13800000000', '000000')).rejects.toBeInstanceOf(ConflictException);
+  });
+
   it('creates a ride record with manual fallback and vehicle data', async () => {
     tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'FORMED', creatorId: 'u1' });
     tx.rideRecord.create.mockResolvedValue({ id: 'r1', mode: 'MANUAL_FALLBACK', status: 'WAITING_RIDE' });

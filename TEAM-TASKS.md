@@ -98,3 +98,12 @@
 - 状态：进行中
 - 当前证据：完整 Vitest 11 suites/20 tests passed；typecheck、生产 build（含 PWA manifest/sw）和 git diff --check 通过。
 - 剩余：页面连通性与聊天/评价反馈细节继续收敛；HTTP 路径仍需以后端 OpenAPI 最终契约对齐。
+
+## DEV-20260824-07 Task 3 前后端真实 HTTP 联调
+
+- 状态：已完成本地闭环，生产认证与第三方服务仍未接入。
+- 产出：`apps/web/src/api/http-client.ts`、`apps/web/src/api/http-client.spec.ts`、开发验证码接口、CORS、创建行程幂等键字段与 migration `apps/api/prisma/migrations/20260824200000_http_idempotency/`。
+- 开发联调约定：`POST /auth/request-code` + `POST /auth/verify-code`，验证码固定 `123456`；验证后前端仅在本地 `localStorage` 保存开发用户 ID，并通过 `x-user-id` 发送。生产必须替换为 HttpOnly Cookie/正式会话，禁止沿用开发验证码。
+- 真实 HTTP 验证：本机 NestJS `http://localhost:3000` + PostgreSQL `localhost:5433` 已完成请求验证码、验证用户、发布行程、创建幂等重试、列表、详情、加入幂等重试、双向确认 `CONFIRMING → FORMED`、15 秒窗口内撤回回退 `RECRUITING`。
+- 验证命令：后端 `npm run build`；`npx jest --runInBand`（8 suites/31 tests）；`npx prisma migrate deploy`、`npx prisma migrate status`（3 migrations/up to date）；前端 HTTP Adapter 2 tests passed。
+- 已知边界：`npm run start` 已修正为 `node dist/src/main.js`；聊天、订单、评价的完整 HTTP 路由尚未补齐；未接入真实短信、微信登录、Kodo、高德或第三方叫车。

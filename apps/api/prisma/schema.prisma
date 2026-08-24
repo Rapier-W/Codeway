@@ -43,6 +43,7 @@ model Trip {
   status      String   @default("RECRUITING") // 招募中 → 双向确认中 → 已成团 → 待叫车 → 已叫车 → 行程结束待结算 → 结算完成 → 待评价 → 已归档
   version     Int      @default(0) // 乐观锁，状态变更必须校验
   disputeLocked Boolean @default(false)
+  createRequestKey String? @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 
 @Injectable()
@@ -6,6 +6,24 @@ export class PlatformService {
   constructor(private readonly prisma: PrismaService) {}
   private tx<T>(fn: (tx: any) => Promise<T>) { return this.prisma.$transaction(fn); }
   private userId(value: string) { if (!value) throw new ForbiddenException('AUTH_REQUIRED'); return value; }
+
+  requestDevelopmentCode(phone: string) {
+    this.validatePhone(phone);
+    return undefined;
+  }
+
+  async verifyDevelopmentCode(phone: string, code: string) {
+    this.validatePhone(phone);
+    if (code !== '123456') throw new ConflictException('INVALID_VERIFICATION_CODE');
+    const id = `dev-${phone}`;
+    const nickname = `用户${phone.slice(-4)}`;
+    const data = { where: { id }, create: { id, phone, phoneVerified: true, nickname }, update: { phone, phoneVerified: true, nickname } };
+    return this.prisma.user?.upsert ? this.prisma.user.upsert(data) : this.tx(async tx => tx.user.upsert(data));
+  }
+
+  private validatePhone(phone: string) {
+    if (!/^1\d{10}$/.test(String(phone ?? ''))) throw new BadRequestException('INVALID_PHONE');
+  }
 
   verifyPhone(userId: string, phone: string) {
     this.userId(userId);

@@ -9,7 +9,7 @@ import { ConfirmationService } from './confirmation.service';
 export class TripsController {
   constructor(private readonly trips: TripsService, private readonly confirmations: ConfirmationService) {}
   private userId(req: any, headers: any) { return req.user?.id || headers['x-user-id'] || headers['X-User-Id']; }
-  @Post() create(@Req() req: any, @Headers() headers: any, @Body() dto: CreateTripDto) { return this.trips.create(this.userId(req, headers), dto); }
+  @Post() create(@Req() req: any, @Headers() headers: any, @Body() dto: CreateTripDto) { return this.trips.create(this.userId(req, headers), dto, headers['idempotency-key']); }
   @Get() list(@Query() dto: ListTripsDto) { return this.trips.list(dto); }
   @Get(':id') findOne(@Param('id') id: string) { return this.trips.findOne(id); }
   @Post(':id/join') join(@Param('id') id: string, @Req() req: any, @Headers() headers: any, @Body() dto: JoinTripDto) { return this.trips.join(this.userId(req, headers), id, dto, headers['idempotency-key']); }
