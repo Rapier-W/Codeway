@@ -12,3 +12,7 @@ apps/web/node_modules/
 apps/web/.npm-cache/
 apps/web/dist/
 apps/web/vitest.config.ts.timestamp-*.mjs
+
+# 内部协作/部署文档,不上传仓库
+AGENTS.md
+DEPLOYMENT.md
