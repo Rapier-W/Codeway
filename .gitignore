@@ -1,21 +1,14 @@
-# dependencies
 node_modules/
-
-# build output
 dist/
-*.tsbuildinfo
-
-# env (keep .env.example)
 .env
-.env.local
-.env.*.local
-
-# tests
+.env.*
+!.env.example
+.worktrees/
 coverage/
-
-# misc
-.DS_Store
+apps/api/prisma/dev.db
 *.log
-# 内部协作/部署文档,不上传仓库
-AGENTS.md
-DEPLOYMENT.md
+# Frontend local tool output
+apps/web/node_modules/
+apps/web/.npm-cache/
+apps/web/dist/
+apps/web/vitest.config.ts.timestamp-*.mjs

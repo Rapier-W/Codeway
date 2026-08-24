@@ -1,7 +1,5 @@
 # TEAM-TASKS.md — 同路行当前任务状态
 
-> 架构基线更新（2026-08-24）：客户端由微信小程序切换为 Vue 3 + Vite + TypeScript + Vant + Pinia + PWA；认证改为七牛云短信验证码 + HttpOnly Cookie；单台 VM 的目标生产拓扑使用 Docker Compose 运行 Nginx、Web、NestJS API 和 PostgreSQL；地图统一高德；聊天采用 Socket.IO + PostgreSQL，Redis 暂不接入。
-
 > Codex 统筹者每次会话开始必读；任务分配或状态变化时追加/更新记录，保留历史。
 
 ## 协作架构
@@ -14,36 +12,44 @@
 
 ## 当前状态
 
-**Task 1 后端骨架已完成并通过既有基础验证；网站客户端与生产 Compose 尚未实现。** 文档 v4.1 已统一多人确认、手机优先 Web/PWA 与 P0 手动 SOS 边界；后续任务必须以该基线为准。
+**Web/PWA 前端与独立后端基线开发进行中。** 前端 Task 1–6 已完成；后端 Task 1（NestJS + Prisma + PostgreSQL 骨架）已完成，下一步进入行程容量与加入接口。
 
 ## 任务分配表
 
 | 任务 ID | 任务描述 | 执行者 | 状态 | 产出 | 更新时间 |
 |---|---|---|---|---|---|
 | BOOT-20260823-01 | 初始化 Git、建立项目协同规则和代理路由 | Codex | 已完成 | `AGENTS.md`、`TEAM-TASKS.md`、Git 仓库 | 2026-08-23 |
-| DEV-20260823-01 | Task 1：NestJS + Prisma 后端骨架与数据库基线 | Kimi K3 → Codex | 待审查 | `apps/api/`、`docker-compose.yml`、`.env.example` | 2026-08-23 |
-| DOC-20260824-01 | 文档 v4.1 一致性复审与网站/PWA 移动端规范 | Codex + 独立审查 | 已完成 | `02`–`07`、`DEPLOYMENT.md`、`.env.example`、`docker-compose.yml` | 2026-08-24 |
-| DEV-20260824-05 | 容量与全员确认真实闭环：PENDING 申请、事务接受、全员确认、15 秒回退、幂等与通知事件 | Codex | 已完成（真实 PG 待执行） | `apps/api/src/trips/`、`apps/api/test/real-capacity-concurrency.e2e-spec.ts`、`apps/api/prisma/migrations/20260824_add_trip_member_request_status/` | 2026-08-24 |
+| WEB-20260824-01 | Vue 3 + Vite + Vant + Pinia + PWA 基础工程、契约 Adapter 与 Mock | Codex + 实现代理 | 已完成 | `apps/web/`、`docs/superpowers/specs/2026-08-24-web-pwa-design.md`、`docs/superpowers/plans/2026-08-24-web-pwa.md` | 2026-08-24 |
+| WEB-20260824-02 | 登录、行程列表/筛选、发布、详情、加入申请与访问保护 | Codex + Reasonix 复核 | 已完成 | `apps/web/src/views/`、`apps/web/src/components/`、`apps/web/src/api/`、`apps/web/src/router/` | 2026-08-24 |
+| DEV-20260823-01 | Task 1：NestJS + Prisma 后端骨架与数据库基线 | Kimi K3 → Codex | 已完成 | `apps/api/`、`docker-compose.yml`、`.env.example` | 2026-08-23 |
 
-## Task 1 审查记录
+## Task 1 后端审查记录
 
-- Kimi 状态：`DONE_WITH_CONCERNS`；未生成自身报告/提交，自动会话在工具执行后停滞。
-- Codex 验证：`npm test -- --runInBand` 通过（1/1）；`npm run build` 通过；带临时 `DATABASE_URL` 的 `npm run prisma:validate` 通过。
-- 剩余风险：容量约束和状态事务留给 Task 2/3；生产 PostgreSQL 部署方式仍待上线前确定。
+- 源分支提交：`260c030 kimi: scaffold api and database baseline`；当前分支合并提交：`a764b64`。
+- Codex 验证：健康检查测试、Nest build、Prisma schema validate 通过；报告：`.superpowers/sdd/2026-08-23-backend-trip-flow/task-1-report.md`。
+- 剩余风险：容量约束和状态事务留给后端 Task 2/3；生产 PostgreSQL 部署方式仍待上线前确定。
 
-## 文档 v4.1 复审记录
+## DEV-20260824-02 行程容量与加入接口
+- 状态：已完成
+- 目标：按 `docs/superpowers/specs/2026-08-24-trip-flow-api.md` 实现发布、列表、详情、加入和推荐理由顺序。
+- 约束：手机号验证、3/4 人容量、1/2 人加入、事务锁、幂等和未来行程排序必须由服务端保证。
+- 产出：`apps/api/src/trips/`、`apps/api/prisma/migrations/20260824190000_trip_domain_checks/migration.sql`。
+- 验证：8 个测试套件/28 个测试通过；Nest build、Prisma generate、Prisma validate、diff check 通过；独立代理复核实现。
+- 真实数据库：已在本机 Docker PostgreSQL `localhost:5433` 执行 migration deploy；后续仍需在独立测试环境做并发验证。
+- 注意：实现提交同时包含此前已存在的 platform/fare/confirmation 模块，已纳入当前 API build/test 验证，后续需单独做范围审查。
 
-- 独立审查：已完成只读跨文档复核；Codex 已检查并同步采纳与当前范围一致的结论。
-- 已统一：3/4 人总人数、一次申请 1–2 席、原子容量校验、全员确认、15 秒反悔/退出边界、短信登录即手机号验证、P0 SOS 事件审计与手动拨号、手机优先 Web/PWA 交互规范、竞品网站化口径。
-- 配置基线：移除旧微信环境变量；当前 Compose 明确为开发数据库基线。`nginx`、`web`、`api`、`postgres` 的生产 Compose 需在网站客户端和 API 容器化任务中落地。
-- 验证：`git diff --check` 与术语一致性扫描通过；同步到 `E:\Codeway` 后已完成 SHA-256 核对和二次扫描。
+### DEV-20260824-02 真实 PostgreSQL migration 验证
 
-## 容量与全员确认闭环审查记录（2026-08-24）
+- 状态：已完成
+- 目标：补齐 Prisma 初始建表 migration，并在本机 Docker PostgreSQL `localhost:5433` 上执行真实 migration 链。
+- 产出：`apps/api/prisma/migrations/20260824180000_initial_schema/migration.sql`、`apps/api/prisma/migrations/migration_lock.toml`。
+- 验证：`npx prisma migrate status` 显示数据库为 up to date；`npx prisma migrate deploy` 成功应用 `20260824180000_initial_schema` 与 `20260824190000_trip_domain_checks`；`npx prisma validate` 通过；`git diff --check` 通过。
+- 数据库边界：使用 `apps/api/.env` 中的本机连接串（端口 5433），未提交 `.env` 或任何凭据。
 
-- 规则：总人数含发单人为 3/4；加入者一次申请 1/2 席；申请先为 `PENDING`，接受后才占用 `ACTIVE` 席位；满员进入 `CONFIRMING`，全部 `ACTIVE` 成员确认后进入 `FORMED`。
-- 事务与幂等：接受/拒绝/确认/回退均在事务中执行并锁定行程；幂等键校验行程、用户、成员和动作作用域；回退将成员释放为 `RELEASED`、确认置 `VOID` 并写入 `NotificationEvent(PENDING)`。
-- 验证：`npm test -- --runInBand --no-cache` → 8 suites passed、30 tests passed、1 skipped；`npm run build` 通过；`npm run prisma:validate` 通过；`npm run test:real-capacity` 在未配置 `REAL_DATABASE_URL` 时按设计跳过。
-- 未完成项：当前环境没有可用真实 PostgreSQL，因此尚未取得行级锁并发实测证据；正式空库 `prisma migrate deploy` 仍需补齐项目初始基线迁移后再执行。
+## DEV-20260824-03 Web/PWA API 契约文档
+- 状态：已完成
+- 产出：`apps/web/api-contract.md`，记录已实现后端路径、前端字段映射和真实供应商接入边界。
+- 验证：文档路径和接口与当前 NestJS controller 对照；真实认证、短信、Kodo、地图和 WebSocket 仍明确标注为未接入。
 
 ## 子任务模板
 
@@ -60,4 +66,35 @@
 ## 安全待办
 
 - Kimi CLI 凭据轮换后改用环境变量注入；不得将新凭据写入仓库。
-- 域名、HTTPS、ICP备案、CORS/Allowed Origins、Cookie 域与安全属性、七牛云 VM 规格、备份与恢复演练在部署任务开始前补齐。
+- 域名、HTTPS、小程序服务器域名、七牛云 VM 规格和备份策略在部署任务开始前补齐。
+
+# Task 3 frontend status
+
+- Commit `ee77032`: login, trip discovery/filtering, publish validation, detail and join sheet.
+- Verification: targeted Vitest 2 files / 2 tests passed; `npm run typecheck` passed; `npm run build` passed with PWA assets; `git diff --check` passed.
+- Note: targeted TripsView test emits a Vue router injection warning because it intentionally mounts without a router; production build is clean.
+
+## Web/PWA Task 1–3 审查记录
+
+- 视觉与移动基线：深墨蓝、夜行蓝、路灯橙、雾白；手机单列、44px 触控目标、48px 主按钮、安全区和 `100dvh` 已落地。
+- Adapter：HTTP 对后端 `departTime/reasonCodes/OPEN_SLOT` 归一化为前端字段；详情使用 `GET /trips/:id`，满员行程不会从详情中消失。
+- 访问与可用性：发布/详情受保护路由保存安全同源 redirect；加入弹层支持 `aria-modal`、初始焦点、Escape 和焦点恢复；卡片支持 Enter/Space。
+- 最新验证：`npm test` → 6 个测试文件、15 个测试通过；`npm run typecheck` 通过；`npm run build` 通过并生成 `manifest.webmanifest`、`sw.js`；`git diff --check` 通过。列表测试仍有一个未注入 Router 的 Vue warning，不影响测试结果。
+- 协作：Kimi CLI 本轮启动时返回 `Agent event 'agent.activity.updated' has no active lifecycle context`，未能执行；由等价实现代理完成 bounded Task 3。Reasonix DeepSeek 完成独立风险复核并推动契约映射、登录回跳和可访问性修复。
+- 后续边界：Task 4 需重新设计 Mock 的 `CONFIRMING → FORMED → 15 秒撤回` 全员确认模型；当前确认 Adapter 仅保留接口对齐，不将单人确认误当成最终成团。
+
+## WEB-20260824-04 确认与费用锁定闭环
+- 状态：已完成（commit c5e12aa）
+- 产出：CONFIRMING 全员确认、FORMED 15秒反悔倒计时、confirmationId 撤回、争议/结算锁定、金额 >0 校验。
+- 验证：3 suites/9 tests passed；typecheck/build passed；diff check仅已修复末尾空行。
+
+## WEB-20260824-05 SOS 与个人页
+- 状态：已完成（commit dc1872d）
+- 产出：移动端长按 SOS 事件记录、手动拨打 110、紧急联系人引导、个人页入口。
+- 边界：不自动短信/报警，不保存精确位置；联系人当前为页面演示状态，持久化需后端契约。
+- 验证：专项测试、typecheck、build 通过；由独立实现代理完成。
+
+## WEB-20260824-06 集成验收
+- 状态：进行中
+- 当前证据：完整 Vitest 11 suites/20 tests passed；typecheck、生产 build（含 PWA manifest/sw）和 git diff --check 通过。
+- 剩余：页面连通性与聊天/评价反馈细节继续收敛；HTTP 路径仍需以后端 OpenAPI 最终契约对齐。

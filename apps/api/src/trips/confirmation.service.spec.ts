@@ -5,21 +5,18 @@ describe('ConfirmationService', () => {
   const tx: any = {
     $queryRaw: jest.fn(),
     trip: { findUnique: jest.fn(), update: jest.fn() },
-    tripMember: { findUnique: jest.fn(), updateMany: jest.fn() },
+    tripMember: { findUnique: jest.fn() },
     tripConfirmation: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
     auditLog: { create: jest.fn() },
-    notificationEvent: { createMany: jest.fn() },
   };
   const prisma: any = { $transaction: jest.fn((fn: any) => fn(tx)) };
   let service: ConfirmationService;
 
   beforeEach(() => { jest.clearAllMocks(); service = new ConfirmationService(prisma); });
 
-  it('keeps a partial confirmation in CONFIRMING after the target seats are full', async () => {
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', capacity: 3, status: 'CONFIRMING', version: 0, members: [
-      { id: 'm1', status: 'ACTIVE', memberCount: 1 }, { id: 'm2', status: 'ACTIVE', memberCount: 1 }, { id: 'm3', status: 'ACTIVE', memberCount: 1 },
-    ] });
-    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1', status: 'ACTIVE' });
+  it('keeps a partial confirmation in CONFIRMING', async () => {
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'RECRUITING', version: 0, members: [{ id: 'm1' }, { id: 'm2' }] });
+    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1' });
     tx.tripConfirmation.findUnique.mockResolvedValue(null);
     tx.tripConfirmation.findMany.mockResolvedValue([]);
     tx.tripConfirmation.create.mockResolvedValue({ id: 'c1', status: 'CONFIRMED' });
@@ -29,25 +26,11 @@ describe('ConfirmationService', () => {
     expect(tx.trip.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'CONFIRMING' }) }));
   });
 
-  it('rejects confirmation before active members occupy the target seats', async () => {
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', capacity: 4, status: 'RECRUITING', version: 0, members: [
-      { id: 'm1', status: 'ACTIVE', memberCount: 1 }, { id: 'm2', status: 'ACTIVE', memberCount: 2 },
-    ] });
-    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1', status: 'ACTIVE' });
-    await expect(service.confirm('t1', 'u1', 'early-key')).rejects.toBeInstanceOf(ConflictException);
-    expect(tx.tripConfirmation.create).not.toHaveBeenCalled();
-  });
-
   it('forms the trip and opens a 15 second withdrawal window when all members confirm', async () => {
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', capacity: 3, status: 'CONFIRMING', version: 1, members: [
-      { id: 'm1', status: 'ACTIVE', memberCount: 1 }, { id: 'm2', status: 'ACTIVE', memberCount: 1 }, { id: 'm3', status: 'ACTIVE', memberCount: 1 },
-    ] });
-    tx.tripMember.findUnique.mockResolvedValue({ id: 'm2', tripId: 't1', userId: 'u2', status: 'ACTIVE' });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'CONFIRMING', version: 1, members: [{ id: 'm1' }, { id: 'm2' }] });
+    tx.tripMember.findUnique.mockResolvedValue({ id: 'm2', tripId: 't1', userId: 'u2' });
     tx.tripConfirmation.findUnique.mockResolvedValue(null);
-    tx.tripConfirmation.findMany.mockResolvedValue([
-      { id: 'c1', memberId: 'm1', status: 'CONFIRMED' },
-      { id: 'c-before', memberId: 'm3', status: 'CONFIRMED' },
-    ]);
+    tx.tripConfirmation.findMany.mockResolvedValue([{ id: 'c1', memberId: 'm1', status: 'CONFIRMED' }]);
     tx.tripConfirmation.create.mockResolvedValue({ id: 'c2', memberId: 'm2', status: 'CONFIRMED' });
     tx.tripConfirmation.updateMany.mockResolvedValue({ count: 2 });
     tx.trip.update.mockResolvedValue({ id: 't1', status: 'FORMED' });
@@ -60,46 +43,41 @@ describe('ConfirmationService', () => {
 
   it('returns the same confirmation for a duplicate idempotency key', async () => {
     const existing = { id: 'c1', status: 'CONFIRMED', tripId: 't1', userId: 'u1' };
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', capacity: 3, status: 'CONFIRMING', version: 0, members: [{ id: 'm1', status: 'ACTIVE', memberCount: 1 }] });
-    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1', status: 'ACTIVE' });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'CONFIRMING', version: 0, members: [{ id: 'm1' }] });
+    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1' });
     tx.tripConfirmation.findUnique.mockResolvedValue(existing);
     await expect(service.confirm('t1', 'u1', 'key-1')).resolves.toEqual(expect.objectContaining({ confirmation: existing, duplicate: true }));
     expect(tx.trip.update).not.toHaveBeenCalled();
   });
 
   it('rejects an idempotency key reused by another trip or user', async () => {
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', capacity: 3, status: 'CONFIRMING', version: 0, members: [{ id: 'm1', status: 'ACTIVE', memberCount: 1 }] });
-    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1', status: 'ACTIVE' });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'CONFIRMING', version: 0, members: [{ id: 'm1' }] });
+    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1' });
     tx.tripConfirmation.findUnique.mockResolvedValue({ id: 'c2', tripId: 't2', userId: 'u2', status: 'CONFIRMED' });
     await expect(service.confirm('t1', 'u1', 'reused')).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('withdraws within the window and atomically rolls the trip back to RECRUITING', async () => {
     const deadline = new Date(Date.now() + 10000);
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'FORMED', version: 2, members: [
-      { id: 'm1', userId: 'u1', role: 'CREATOR', status: 'ACTIVE' }, { id: 'm2', userId: 'u2', role: 'MEMBER', status: 'ACTIVE' },
-    ] });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'FORMED', version: 2 });
     tx.tripConfirmation.findUnique.mockResolvedValue({ id: 'c1', tripId: 't1', userId: 'u1', status: 'CONFIRMED', retractUntil: deadline });
     tx.tripConfirmation.updateMany.mockResolvedValue({ count: 2 });
-    tx.tripMember.updateMany.mockResolvedValue({ count: 1 });
     tx.trip.update.mockResolvedValue({ id: 't1', status: 'RECRUITING' });
     const result = await service.withdraw('t1', 'c1', 'u1');
     expect(result.tripStatus).toBe('RECRUITING');
     expect(tx.tripConfirmation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'VOID' }) }));
-    expect(tx.tripMember.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'RELEASED' }) }));
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'rollback' }) }));
-    expect(tx.notificationEvent.createMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.any(Array) }));
   });
 
   it('rejects withdrawal after the 15 second window', async () => {
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'FORMED', version: 2, members: [] });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'FORMED', version: 2 });
     tx.tripConfirmation.findUnique.mockResolvedValue({ id: 'c1', tripId: 't1', userId: 'u1', status: 'CONFIRMED', retractUntil: new Date(Date.now() - 1) });
     await expect(service.withdraw('t1', 'c1', 'u1')).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('rejects confirmation for a missing member', async () => {
     tx.tripConfirmation.findUnique.mockResolvedValue(null);
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'CONFIRMING', version: 0, capacity: 3, members: [] });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'RECRUITING', version: 0, members: [] });
     tx.tripMember.findUnique.mockResolvedValue(null);
     await expect(service.confirm('t1', 'u1', 'key')).rejects.toBeInstanceOf(NotFoundException);
   });

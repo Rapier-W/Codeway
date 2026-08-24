@@ -17,9 +17,4 @@ describe('Confirmations API (e2e)', () => {
     await request(app.getHttpServer()).post('/trips/t1/confirmations').set('x-user-id', 'u1').set('idempotency-key', 'k1').expect(201);
     await request(app.getHttpServer()).post('/trips/t1/confirmations/c1/withdraw').set('x-user-id', 'u1').expect(201);
   });
-
-  it('exposes creator join-request decision endpoints', async () => {
-    await request(app.getHttpServer()).post('/trips/t1/join-requests/m1/accept').set('x-user-id', 'creator').set('idempotency-key', 'accept-1').expect(201);
-    await request(app.getHttpServer()).post('/trips/t1/join-requests/m1/reject').set('x-user-id', 'creator').set('idempotency-key', 'reject-1').expect(201);
-  });
 });

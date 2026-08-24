@@ -1,4 +1,3 @@
-# 开发数据库基线。生产环境待 apps/web 与 API 容器化后扩展为 nginx、web、api、postgres 四服务。
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,8 +7,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-tongluxing}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-tongluxing}
+    # 仅供本机开发访问；生产环境不得将 PostgreSQL 端口暴露到公网。
     ports:
-      - '127.0.0.1:5432:5432'
+      - '127.0.0.1:5433:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

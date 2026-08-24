@@ -1,7 +1,7 @@
-// Codeway后端数据库基线（PostgreSQL）
+// 同路行后端数据库基线（PostgreSQL）
 // 容量规则：Trip.capacity 只能是 3 或 4，且总人数含发单人。
-// Prisma schema 无法表达 CHECK 约束，3|4 校验在应用层 DTO/事务中强制，
-// 后续迁移可用原生 SQL 追加 CHECK (capacity IN (3, 4))。
+// Prisma schema 无法表达 CHECK 约束，3|4、状态/角色/席位和推荐理由校验
+// 在应用层与 prisma/migrations/20260824190000_trip_domain_checks 中共同强制。
 
 generator client {
   provider = "prisma-client-js"
@@ -37,7 +37,7 @@ model Trip {
   origin      String
   destination String
   departTime  DateTime
-  capacity    Int // 只允许 3 或 4，总人数含发单人；应用层强制
+  capacity    Int // 只允许 3 或 4，总人数含发单人；应用层 + SQL CHECK 强制
   feePlan     Json? // 金额一律整数分
   femaleOnly  Boolean  @default(false)
   status      String   @default("RECRUITING") // 招募中 → 双向确认中 → 已成团 → 待叫车 → 已叫车 → 行程结束待结算 → 结算完成 → 待评价 → 已归档
@@ -68,12 +68,7 @@ model TripMember {
   user        User     @relation(fields: [userId], references: [id])
   role        String   @default("MEMBER") // CREATOR | MEMBER
   memberCount Int      @default(1) // 该成员占用座位数：发单人=1，加入者=1 或 2
-  status      String   @default("ACTIVE") // PENDING | ACTIVE | REJECTED | RELEASED
-  acceptedAt  DateTime?
   joinRequestKey String? @unique // 客户端请求幂等键
-  decisionRequestKey String? @unique // 发单人接受/拒绝操作幂等键
-  decisionAction String? // ACCEPT 或 REJECT，用于防止决策幂等键跨操作复用
-  decisionActorId String? // 执行接受/拒绝的发单人
   joinedAt    DateTime @default(now())
 
   confirmations TripConfirmation[]
@@ -91,7 +86,7 @@ model TripConfirmation {
   member         TripMember  @relation(fields: [memberId], references: [id])
   userId         String
   user           User        @relation(fields: [userId], references: [id])
-  status         String      @default("CONFIRMED") // CONFIRMED | WITHDRAWN | VOID（回退作废）
+  status         String      @default("CONFIRMED") // CONFIRMED | VOID（回退作废）；userId 冗余字段必须与 member.userId 一致
   confirmedAt    DateTime    @default(now())
   retractUntil   DateTime? // 最后一名成员确认开启的 15 秒反悔窗口
   idempotencyKey String?     @unique // 重复确认幂等
@@ -104,7 +99,7 @@ model RecommendationDecision {
   id        String   @id @default(uuid())
   tripId    String
   trip      Trip     @relation(fields: [tripId], references: [id])
-  reasons   String[] // 白名单：TIME_CLOSE | RELIABLE | VERIFIED | OPEN_SLOT，最多 3 个，不影响排序
+  reasons   String[] // SQL CHECK 强制白名单：TIME_CLOSE | RELIABLE | VERIFIED | OPEN_SLOT，最多 3 个，不影响排序
   decidedAt DateTime @default(now())
 
   @@map("recommendation_decisions")
