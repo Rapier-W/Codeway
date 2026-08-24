@@ -68,7 +68,12 @@ model TripMember {
   user        User     @relation(fields: [userId], references: [id])
   role        String   @default("MEMBER") // CREATOR | MEMBER
   memberCount Int      @default(1) // 该成员占用座位数：发单人=1，加入者=1 或 2
+  status      String   @default("ACTIVE") // PENDING | ACTIVE | REJECTED | RELEASED
+  acceptedAt  DateTime?
   joinRequestKey String? @unique // 客户端请求幂等键
+  decisionRequestKey String? @unique // 发单人接受/拒绝操作幂等键
+  decisionAction String? // ACCEPT 或 REJECT，用于防止决策幂等键跨操作复用
+  decisionActorId String? // 执行接受/拒绝的发单人
   joinedAt    DateTime @default(now())
 
   confirmations TripConfirmation[]

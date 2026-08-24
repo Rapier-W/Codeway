@@ -49,7 +49,7 @@ export class TripsService {
       })
       : trips;
     return filtered.map((trip: any) => {
-      const occupied = trip.members.reduce((n: number, m: any) => n + m.memberCount, 0);
+      const occupied = trip.members.filter((m: any) => (m.status ?? 'ACTIVE') === 'ACTIVE').reduce((n: number, m: any) => n + m.memberCount, 0);
       const reasons: string[] = [];
       if (trip.creator.creditScore < 60) return { ...trip, reasonCodes: [] };
       const hours = (trip.departTime.getTime() - now.getTime()) / 3600000;
@@ -68,29 +68,95 @@ export class TripsService {
   }
 
   async join(userId: string, tripId: string, dto: JoinTripDto, idempotencyKey?: string) {
-    const user = await this.requireVerified(userId);
     const count = Number(dto.memberCount);
     if (![1, 2].includes(count)) throw new BadRequestException('MEMBER_COUNT_MUST_BE_1_OR_2');
     return this.prisma.$transaction(async tx => {
+      const user = await this.requireVerified(userId, tx);
       if (tx.$queryRaw) await tx.$queryRaw`SELECT id FROM trips WHERE id = ${tripId} FOR UPDATE`;
+      const existingByKey = idempotencyKey && tx.tripMember.findUnique
+        ? await (tx.tripMember.findUnique as any)({ where: { joinRequestKey: idempotencyKey } })
+        : null;
+      if (existingByKey) {
+        if (existingByKey.tripId !== tripId || existingByKey.userId !== userId || existingByKey.memberCount !== count) {
+          throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+        }
+        return existingByKey;
+      }
       const trip = await tx.trip.findUnique({ where: { id: tripId }, include: { members: true } });
       if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
       if (trip.status !== TripStatus.RECRUITING) throw new ConflictException('TRIP_NOT_RECRUITING');
       if (trip.femaleOnly && String(user.gender).toUpperCase() !== 'FEMALE') throw new ForbiddenException('FEMALE_ONLY_TRIP');
-      const existingByKey = idempotencyKey && tx.tripMember.findUnique
-        ? await (tx.tripMember.findUnique as any)({ where: { joinRequestKey: idempotencyKey } })
-        : null;
-      if (existingByKey) return existingByKey;
       const existing = tx.tripMember.findUnique
         ? await tx.tripMember.findUnique({ where: { tripId_userId: { tripId, userId } } })
         : await tx.tripMember.findFirst({ where: { tripId, userId } });
-      if (existing) return existing;
+      if (existing && ['PENDING', 'ACTIVE'].includes(existing.status ?? 'ACTIVE')) return existing;
       const members = trip.members ?? (tx.tripMember.findMany ? await tx.tripMember.findMany({ where: { tripId } }) : []);
-      const occupied = members.reduce((n: number, m: any) => n + m.memberCount, 0);
+      const occupied = members.filter((m: any) => (m.status ?? 'ACTIVE') === 'ACTIVE').reduce((n: number, m: any) => n + m.memberCount, 0);
       if (occupied + count > trip.capacity) throw new ConflictException('TRIP_CAPACITY_EXCEEDED');
-      const member = await tx.tripMember.create({ data: { tripId, userId, role: 'MEMBER', memberCount: count, ...(idempotencyKey ? { joinRequestKey: idempotencyKey } : {}) } as any });
+      const member = existing
+        ? await tx.tripMember.update({ where: { id: existing.id }, data: { memberCount: count, status: 'PENDING', acceptedAt: null, joinRequestKey: idempotencyKey ?? null, decisionRequestKey: null } })
+        : await tx.tripMember.create({ data: { tripId, userId, role: 'MEMBER', memberCount: count, status: 'PENDING', ...(idempotencyKey ? { joinRequestKey: idempotencyKey } : {}) } as any });
       if (tx.auditLog?.create) await tx.auditLog.create({ data: { tripId, actorId: userId, action: 'join', payload: { idempotencyKey, memberCount: count } } });
       return member;
+    });
+  }
+
+  async acceptJoin(creatorId: string, tripId: string, memberId: string, idempotencyKey?: string) {
+    return this.prisma.$transaction(async tx => {
+      if (tx.$queryRaw) await tx.$queryRaw`SELECT id FROM trips WHERE id = ${tripId} FOR UPDATE`;
+      const trip = await tx.trip.findUnique({ where: { id: tripId }, include: { members: true } });
+      if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
+      if (trip.creatorId !== creatorId) throw new ForbiddenException('JOIN_DECISION_FORBIDDEN');
+      if (trip.status !== TripStatus.RECRUITING) throw new ConflictException('TRIP_NOT_RECRUITING');
+      const member = await tx.tripMember.findUnique({ where: { id: memberId } });
+      if (!member || member.tripId !== tripId) throw new NotFoundException('TRIP_MEMBER_NOT_FOUND');
+      if (idempotencyKey) {
+        const duplicate = await tx.tripMember.findUnique({ where: { decisionRequestKey: idempotencyKey } });
+        if (duplicate) {
+          if (duplicate.tripId !== tripId || duplicate.id !== memberId || duplicate.decisionAction !== 'ACCEPT' || duplicate.decisionActorId !== creatorId) {
+            throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+          }
+          return { member: duplicate, tripStatus: trip.status, duplicate: true };
+        }
+      }
+      if (member.status === 'ACTIVE') return { member, tripStatus: trip.status, duplicate: true };
+      if (member.status !== 'PENDING') throw new ConflictException('JOIN_REQUEST_NOT_PENDING');
+      const activeMembers = (trip.members ?? []).filter((item: any) => (item.status ?? 'ACTIVE') === 'ACTIVE');
+      const occupied = activeMembers.reduce((n: number, item: any) => n + item.memberCount, 0);
+      if (occupied + member.memberCount > trip.capacity) throw new ConflictException('TRIP_CAPACITY_EXCEEDED');
+      const updatedMember = await tx.tripMember.update({ where: { id: memberId }, data: { status: 'ACTIVE', acceptedAt: new Date(), ...(idempotencyKey ? { decisionRequestKey: idempotencyKey, decisionAction: 'ACCEPT', decisionActorId: creatorId } : {}) } });
+      const nextOccupied = occupied + member.memberCount;
+      const nextStatus = nextOccupied === trip.capacity ? TripStatus.CONFIRMING : trip.status;
+      const updatedTrip = nextStatus === trip.status
+        ? trip
+        : await tx.trip.update({ where: { id: tripId }, data: { status: nextStatus, version: { increment: 1 } } });
+      if (tx.auditLog?.create) await tx.auditLog.create({ data: { tripId, actorId: creatorId, action: 'accept-join', payload: { memberId, idempotencyKey, nextStatus } } });
+      return { member: updatedMember, tripStatus: updatedTrip.status, duplicate: false };
+    });
+  }
+
+  async rejectJoin(creatorId: string, tripId: string, memberId: string, idempotencyKey?: string) {
+    return this.prisma.$transaction(async tx => {
+      if (tx.$queryRaw) await tx.$queryRaw`SELECT id FROM trips WHERE id = ${tripId} FOR UPDATE`;
+      const trip = await tx.trip.findUnique({ where: { id: tripId }, include: { members: true } });
+      if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
+      if (trip.creatorId !== creatorId) throw new ForbiddenException('JOIN_DECISION_FORBIDDEN');
+      if (trip.status !== TripStatus.RECRUITING) throw new ConflictException('TRIP_NOT_RECRUITING');
+      const member = await tx.tripMember.findUnique({ where: { id: memberId } });
+      if (!member || member.tripId !== tripId) throw new NotFoundException('TRIP_MEMBER_NOT_FOUND');
+      if (idempotencyKey) {
+        const duplicate = await tx.tripMember.findUnique({ where: { decisionRequestKey: idempotencyKey } });
+        if (duplicate) {
+          if (duplicate.tripId !== tripId || duplicate.id !== memberId || duplicate.decisionAction !== 'REJECT' || duplicate.decisionActorId !== creatorId) {
+            throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+          }
+          return { member: duplicate, tripStatus: trip.status, duplicate: true };
+        }
+      }
+      if (member.status !== 'PENDING') throw new ConflictException('JOIN_REQUEST_NOT_PENDING');
+      const updatedMember = await tx.tripMember.update({ where: { id: memberId }, data: { status: 'REJECTED', ...(idempotencyKey ? { decisionRequestKey: idempotencyKey, decisionAction: 'REJECT', decisionActorId: creatorId } : {}) } });
+      if (tx.auditLog?.create) await tx.auditLog.create({ data: { tripId, actorId: creatorId, action: 'reject-join', payload: { memberId, idempotencyKey } } });
+      return { member: updatedMember, tripStatus: trip.status, duplicate: false };
     });
   }
 

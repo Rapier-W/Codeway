@@ -15,11 +15,6 @@ export class ConfirmationService {
       if (tx.$queryRaw) await tx.$queryRaw`SELECT id FROM trips WHERE id = ${tripId} FOR UPDATE`;
       const trip = await tx.trip.findUnique({ where: { id: tripId }, include: { members: true } });
       if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
-      if (![TripStatus.RECRUITING, TripStatus.CONFIRMING].includes(trip.status)) throw new ConflictException('TRIP_NOT_CONFIRMING');
-      const member = tx.tripMember.findUnique
-        ? await tx.tripMember.findUnique({ where: { tripId_userId: { tripId, userId } } })
-        : await tx.tripMember.findFirst({ where: { tripId, userId } });
-      if (!member) throw new NotFoundException('TRIP_MEMBER_NOT_FOUND');
       if (idempotencyKey) {
         const duplicate = await tx.tripConfirmation.findUnique({ where: { idempotencyKey } });
         if (duplicate) {
@@ -27,12 +22,21 @@ export class ConfirmationService {
           return { confirmation: duplicate, tripStatus: trip.status, duplicate: true, retractUntil: duplicate.retractUntil };
         }
       }
+      if (trip.status !== TripStatus.CONFIRMING) throw new ConflictException('TRIP_NOT_CONFIRMING');
+      const member = tx.tripMember.findUnique
+        ? await tx.tripMember.findUnique({ where: { tripId_userId: { tripId, userId } } })
+        : await tx.tripMember.findFirst({ where: { tripId, userId } });
+      if (!member) throw new NotFoundException('TRIP_MEMBER_NOT_FOUND');
+      if ((member.status ?? 'ACTIVE') !== 'ACTIVE') throw new ConflictException('TRIP_MEMBER_NOT_ACTIVE');
       const existing = await tx.tripConfirmation.findFirst?.({ where: { tripId, userId, status: ConfirmationStatus.CONFIRMED } });
       if (existing) return { confirmation: existing, tripStatus: trip.status, duplicate: true, retractUntil: existing.retractUntil };
+      const activeMembers = (trip.members ?? []).filter((item: any) => (item.status ?? 'ACTIVE') === 'ACTIVE');
+      const occupied = activeMembers.reduce((total: number, item: any) => total + item.memberCount, 0);
+      if (occupied !== trip.capacity) throw new ConflictException('TRIP_CAPACITY_NOT_FULL');
       const confirmation = await tx.tripConfirmation.create({ data: { tripId, memberId: member.id, userId, status: ConfirmationStatus.CONFIRMED, idempotencyKey } });
       const prior = await tx.tripConfirmation.findMany({ where: { tripId, status: ConfirmationStatus.CONFIRMED } });
       const priorIncludesNew = prior.some((item: any) => item.id === confirmation.id);
-      const allConfirmed = (prior.length + (priorIncludesNew ? 0 : 1)) >= (trip.members?.length ?? 0);
+      const allConfirmed = (prior.length + (priorIncludesNew ? 0 : 1)) >= activeMembers.length;
       if (!allConfirmed) {
         if (!canTransition(trip.status, TripStatus.CONFIRMING)) throw new ConflictException('INVALID_TRIP_TRANSITION');
         const updated = await tx.trip.update({ where: { id: tripId }, data: { status: TripStatus.CONFIRMING, version: { increment: 1 } } });
@@ -61,10 +65,17 @@ export class ConfirmationService {
       if (trip.status !== TripStatus.FORMED || !confirmation.retractUntil || new Date() >= confirmation.retractUntil) throw new ConflictException('WITHDRAW_WINDOW_EXPIRED');
       if (!canTransition(trip.status, TripStatus.RECRUITING)) throw new ConflictException('INVALID_TRIP_TRANSITION');
       await tx.tripConfirmation.updateMany({ where: { tripId, status: ConfirmationStatus.CONFIRMED }, data: { status: ConfirmationStatus.VOID } });
+      await tx.tripMember.updateMany({ where: { tripId, role: 'MEMBER', status: 'ACTIVE' }, data: { status: 'RELEASED' } });
       const updated = await tx.trip.update({ where: { id: tripId }, data: { status: TripStatus.RECRUITING, version: { increment: 1 } } });
       await this.audit(tx, tripId, userId, 'withdraw', { confirmationId });
       await this.audit(tx, tripId, userId, 'rollback', { reason: 'WITHDRAWAL_WINDOW' });
       await this.audit(tx, tripId, userId, 'notify-members', { memberIds: (trip.members ?? []).map((member: any) => member.userId), type: 'CONFIRMATION_ROLLBACK' });
+      if (tx.notificationEvent?.createMany) {
+        await tx.notificationEvent.createMany({ data: (trip.members ?? []).map((member: any) => ({
+          type: 'CONFIRMATION_ROLLBACK', tripId, userId: member.userId,
+          payload: { confirmationId, status: TripStatus.RECRUITING }, status: 'PENDING',
+        })) });
+      }
       return { confirmation: { ...confirmation, status: ConfirmationStatus.VOID }, tripStatus: updated.status, duplicate: false };
     });
   }
