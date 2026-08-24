@@ -6,6 +6,7 @@ import TripCreateView from '../views/TripCreateView.vue'
 import TripDetailView from '../views/TripDetailView.vue'
 import ChatView from '../views/ChatView.vue'; import MyTripsView from '../views/MyTripsView.vue'; import RideView from '../views/RideView.vue'; import OrderView from '../views/OrderView.vue'; import ReviewView from '../views/ReviewView.vue'
 import { useSessionStore } from '../stores/session'
+import SosView from '../views/SosView.vue'; import ProfileView from '../views/ProfileView.vue'
 
 const Placeholder = (title: string) => ({ template: `<main class="page"><h1>${title}</h1><p>功能正在接入中。</p></main>` })
 
@@ -23,7 +24,8 @@ export const router = createRouter({
     { path: '/trips/:id/ride', component: RideView, name: 'ride', meta:{ requiresAuth:true } },
     { path: '/orders/:id', component: OrderView, name: 'order', meta:{ requiresAuth:true } },
     { path: '/orders/:id/review', component: ReviewView, name: 'review', meta:{ requiresAuth:true } },
-    { path: '/profile', component: Placeholder('我的'), name: 'profile' },
+    { path: '/profile', component: ProfileView, name: 'profile' },
+    { path: '/sos', component: SosView, name: 'sos', meta: { requiresAuth: true } },
   ],
 })
 
