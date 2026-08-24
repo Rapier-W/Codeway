@@ -38,6 +38,11 @@
 - 未完成：Docker daemon 当前未运行，真实 PostgreSQL migration 尚未执行；本地 PostgreSQL 服务存在但连接凭据和客户端工具未配置，不能猜测连接参数。
 - 注意：实现提交同时包含此前已存在的 platform/fare/confirmation 模块，已纳入当前 API build/test 验证，后续需单独做范围审查。
 
+## DEV-20260824-03 Web/PWA API 契约文档
+- 状态：已完成
+- 产出：`apps/web/api-contract.md`，记录已实现后端路径、前端字段映射和真实供应商接入边界。
+- 验证：文档路径和接口与当前 NestJS controller 对照；真实认证、短信、Kodo、地图和 WebSocket 仍明确标注为未接入。
+
 ## 子任务模板
 
 `目标｜输入文件｜产出文件｜不可修改范围｜验收命令｜完成标准｜状态回写`
