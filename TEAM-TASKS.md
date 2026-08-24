@@ -1,5 +1,7 @@
 # TEAM-TASKS.md — 同路行当前任务状态
 
+> 架构基线更新（2026-08-24）：客户端由微信小程序切换为 Vue 3 + Vite + TypeScript + Vant + Pinia + PWA；认证改为七牛云短信验证码 + HttpOnly Cookie；单台 VM 的目标生产拓扑使用 Docker Compose 运行 Nginx、Web、NestJS API 和 PostgreSQL；地图统一高德；聊天采用 Socket.IO + PostgreSQL，Redis 暂不接入。
+
 > Codex 统筹者每次会话开始必读；任务分配或状态变化时追加/更新记录，保留历史。
 
 ## 协作架构
