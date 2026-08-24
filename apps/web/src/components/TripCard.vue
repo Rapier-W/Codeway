@@ -8,7 +8,7 @@ const reasons = computed(() => props.trip.recommendationReasons.map((r) => label
 const time = computed(() => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(props.trip.departureAt)))
 </script>
 <template>
-  <article class="trip-card" tabindex="0" @click="emit('open', trip.id)" @keydown.enter="emit('open', trip.id)">
+  <article class="trip-card" role="button" tabindex="0" @click="emit('open', trip.id)" @keydown.enter="emit('open', trip.id)" @keydown.space.prevent="emit('open', trip.id)">
     <div class="trip-card__time">{{ time }}</div>
     <div class="trip-card__route"><strong>{{ trip.origin }}</strong><span aria-hidden="true">→</span><strong>{{ trip.destination }}</strong></div>
     <div class="trip-card__meta"><span>{{ trip.activeMemberCount }}/{{ trip.capacity }} 人</span><span v-if="reasons.length" class="reasons">{{ reasons.join(' · ') }}</span></div>

@@ -40,9 +40,10 @@ export interface ApiClient {
   requestCode(phone: string, idempotencyKey: string): Promise<void>
   verifyCode(phone: string, code: string, idempotencyKey: string): Promise<SessionUser>
   listTrips(): Promise<Trip[]>
+  getTrip(tripId: string): Promise<Trip>
   createTrip(input: CreateTripInput, idempotencyKey: string): Promise<Trip>
   joinTrip(tripId: string, input: JoinTripInput, idempotencyKey: string): Promise<JoinRequest>
   confirmTrip(tripId: string, idempotencyKey: string): Promise<Trip>
-  withdrawConfirmation(tripId: string, idempotencyKey: string): Promise<Trip>
+  withdrawConfirmation(tripId: string, confirmationId: string, idempotencyKey: string): Promise<Trip>
   createSosEvent(input: SosInput, idempotencyKey: string): Promise<{ id: string; createdAt: string }>
 }

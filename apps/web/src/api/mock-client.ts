@@ -35,6 +35,9 @@ export class MockApiClient implements ApiClient {
       .filter((trip) => trip.status === 'RECRUITING' && trip.activeMemberCount < trip.capacity)
       .map((trip) => structuredClone(trip))
   }
+  async getTrip(tripId: string): Promise<Trip> {
+    return this.findTrip(tripId)
+  }
 
   async createTrip(input: CreateTripInput, _idempotencyKey: string): Promise<Trip> {
     const trip: Trip = { id: `trip-${this.trips.length + 1}`, ...input, activeMemberCount: 1, status: 'RECRUITING', recommendationReasons: ['VERIFIED', 'AVAILABLE'] }
@@ -66,7 +69,7 @@ export class MockApiClient implements ApiClient {
     return structuredClone(trip)
   }
 
-  async withdrawConfirmation(tripId: string, _idempotencyKey: string): Promise<Trip> {
+  async withdrawConfirmation(tripId: string, _confirmationId: string, _idempotencyKey: string): Promise<Trip> {
     this.throwConfiguredFailure('withdrawConfirmation')
     const trip = this.findTripReference(tripId)
     if (trip.status !== 'FORMED') throw new ApiError('STATE_CONFLICT', '当前状态无法撤回确认，请刷新行程状态', 409)

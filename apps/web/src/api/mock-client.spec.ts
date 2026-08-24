@@ -18,6 +18,10 @@ describe('MockApiClient', () => {
     })
   })
 
+  it('loads a requested trip even when it is full', async () => {
+    await expect(new MockApiClient().getTrip('trip-full')).resolves.toMatchObject({ id: 'trip-full', activeMemberCount: 3 })
+  })
+
   it('returns a typed state conflict when configured for a write operation', async () => {
     const client = new MockApiClient({ failures: { joinTrip: 'conflict' } })
 
@@ -37,7 +41,7 @@ describe('MockApiClient', () => {
     const client = new MockApiClient()
 
     await expect(client.confirmTrip('trip-2', 'confirm-1')).resolves.toMatchObject({ status: 'FORMED' })
-    await expect(client.withdrawConfirmation('trip-2', 'withdraw-1')).resolves.toMatchObject({ status: 'RECRUITING' })
+    await expect(client.withdrawConfirmation('trip-2', 'confirmation-1', 'withdraw-1')).resolves.toMatchObject({ status: 'RECRUITING' })
   })
 
   it('rejects confirmation before a trip is full', async () => {
