@@ -53,3 +53,8 @@
 - 最新验证：`npm test` → 6 个测试文件、15 个测试通过；`npm run typecheck` 通过；`npm run build` 通过并生成 `manifest.webmanifest`、`sw.js`；`git diff --check` 通过。列表测试仍有一个未注入 Router 的 Vue warning，不影响测试结果。
 - 协作：Kimi CLI 本轮启动时返回 `Agent event 'agent.activity.updated' has no active lifecycle context`，未能执行；由等价实现代理完成 bounded Task 3。Reasonix DeepSeek 完成独立风险复核并推动契约映射、登录回跳和可访问性修复。
 - 后续边界：Task 4 需重新设计 Mock 的 `CONFIRMING → FORMED → 15 秒撤回` 全员确认模型；当前确认 Adapter 仅保留接口对齐，不将单人确认误当成最终成团。
+
+## WEB-20260824-04 确认与费用锁定闭环
+- 状态：已完成（commit c5e12aa）
+- 产出：CONFIRMING 全员确认、FORMED 15秒反悔倒计时、confirmationId 撤回、争议/结算锁定、金额 >0 校验。
+- 验证：3 suites/9 tests passed；typecheck/build passed；diff check仅已修复末尾空行。
