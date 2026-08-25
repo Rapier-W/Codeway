@@ -113,4 +113,19 @@ describe('TripsService', () => {
       origin: 'A', destination: 'B', departTime: new Date(Date.now() + 3600000).toISOString(), capacity: 3,
     } as any, 'create-key')).resolves.toMatchObject({ id: 't1', reasonCodes: [] });
   });
+  it('lists only the current user trips for the requested role with occupied seats and order state', async () => {
+    prisma.trip.findMany.mockResolvedValue([
+      {
+        id: 't-published', creatorId: 'u1', origin: 'A', destination: 'B',
+        departTime: new Date('2026-08-26T10:00:00.000Z'), capacity: 4, status: 'FORMED', disputeLocked: false,
+        members: [{ userId: 'u1', role: 'CREATOR', memberCount: 1 }, { userId: 'u2', role: 'MEMBER', memberCount: 2 }],
+        fareOrders: [{ id: 'order-1' }],
+      },
+    ]);
+
+    await expect(service.listMine('u1', 'published')).resolves.toEqual([
+      expect.objectContaining({ id: 't-published', activeMemberCount: 3, fareOrderId: 'order-1', role: 'published' }),
+    ]);
+    expect(prisma.trip.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { creatorId: 'u1' } }));
+  });
 });

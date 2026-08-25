@@ -4,6 +4,7 @@ import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { CreateTripDto } from './dto/create-trip.dto';
 import { JoinTripDto } from './dto/join-trip.dto';
 import { ListTripsDto } from './dto/list-trips.dto';
+import { ListMyTripsDto } from './dto/list-my-trips.dto';
 import { TripsService } from './trips.service';
 import { ConfirmationService } from './confirmation.service';
 
@@ -20,6 +21,11 @@ export class TripsController {
   @Get()
   list(@Query() dto: ListTripsDto) {
     return this.trips.list(dto);
+  }
+
+  @Get('mine')
+  listMine(@CurrentUserId() userId: string, @Query() dto: ListMyTripsDto) {
+    return this.trips.listMine(userId, dto.role);
   }
 
   @Get(':id')

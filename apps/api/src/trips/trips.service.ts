@@ -82,6 +82,28 @@ export class TripsService {
     });
   }
 
+  async listMine(userId: string, role: 'joined' | 'published' = 'joined') {
+    if (!userId) throw new ForbiddenException('AUTH_REQUIRED');
+    const where = role === 'published' ? { creatorId: userId } : { members: { some: { userId } } };
+    const trips = await this.prisma.trip.findMany({
+      where,
+      orderBy: { departTime: 'asc' },
+      include: { members: true, fareOrders: { select: { id: true } } },
+    });
+    return trips.map((trip: any) => ({
+      id: trip.id,
+      origin: trip.origin,
+      destination: trip.destination,
+      departTime: trip.departTime,
+      capacity: trip.capacity,
+      activeMemberCount: (trip.members ?? []).reduce((total: number, member: any) => total + Number(member.memberCount ?? 0), 0),
+      status: trip.status,
+      fareOrderId: trip.fareOrders?.[0]?.id ?? null,
+      disputeLocked: Boolean(trip.disputeLocked),
+      role: trip.creatorId === userId ? 'published' : 'joined',
+    }));
+  }
+
   async findOne(id: string) {
     const trip = await this.prisma.trip.findUnique({ where: { id }, include: { members: { include: { user: true } }, creator: true, fareOrders: { select: { id: true } } } });
     if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
