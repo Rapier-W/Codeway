@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip } from './contracts'
+import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
 
 const sampleTrips: Trip[] = [
   { id: 'trip-1', origin: '大学城南门', destination: '火车站', departureAt: '2026-08-25T20:00:00+08:00', capacity: 4, activeMemberCount: 1, status: 'RECRUITING', recommendationReasons: ['TIME_CLOSE', 'VERIFIED', 'AVAILABLE'] },
@@ -39,6 +39,7 @@ export class MockApiClient implements ApiClient {
       .filter((trip) => trip.status === 'RECRUITING' && trip.activeMemberCount < trip.capacity)
       .map((trip) => structuredClone(trip))
   }
+  async listMyTrips(_role: 'joined' | 'published'): Promise<Trip[]> { return this.trips.filter((trip) => trip.status !== 'CANCELLED').map((trip) => structuredClone(trip)) }
   async getTrip(tripId: string): Promise<Trip> {
     return this.findTrip(tripId)
   }
@@ -86,9 +87,15 @@ export class MockApiClient implements ApiClient {
     return structuredClone(trip)
   }
   async createSosEvent(_input: SosInput, _idempotencyKey: string): Promise<{ id: string; createdAt: string }> { return { id: 'sos-1', createdAt: new Date().toISOString() } }
-  async listMessages(_tripId: string) { return [{ id: 'msg-1', senderId: 'user-demo', text: '大家好，费用先按等额确认。', createdAt: new Date().toISOString() }] }
-  async sendMessage(_tripId: string, text: string, _idempotencyKey: string) { return { id: `msg-${Date.now()}`, senderId: 'user-demo', text, createdAt: new Date().toISOString() } }
+  async listMessagesPage(_tripId: string): Promise<MessagePage> { return { messages: [{ id: 'msg-1', senderId: 'user-demo', text: '大家好，费用先按等额确认。', createdAt: new Date().toISOString() }], hasMore: false, nextCursor: null } }
+  async listMessages(tripId: string) { return (await this.listMessagesPage(tripId)).messages }
+  async sendMessage(_tripId: string, text: string, _idempotencyKey: string) { if (!text.trim()) throw new ApiError('MESSAGE_TEXT_REQUIRED', '消息不能为空', 400); return { id: `msg-${Date.now()}`, senderId: 'user-demo', text: text.trim(), createdAt: new Date().toISOString() } }
   async getOrder(orderId: string) { return { id: orderId, tripId: 'trip-1', disputed: false, settlementLocked: false, costShare: { mode: 'EQUAL' as const, amountCents: 1200, confirmed: false } } }
+  async confirmOrder(_orderId: string) {}
+  async disputeOrder(_orderId: string, _reason: string) {}
+  async updateVehicle(_tripId: string, _input: Vehicle) {}
+  async openRide(_tripId: string, _platform: string) {}
+  async addEmergencyContact(_input: EmergencyContact) {}
   async submitReview(_input: import('./contracts').ReviewInput, _idempotencyKey: string) {}
 
   private findTrip(tripId: string) {

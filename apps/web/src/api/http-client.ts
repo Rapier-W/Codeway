@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type ChatMessage, type Order, type ReviewInput } from './contracts'
+import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type ChatMessage, type Order, type ReviewInput, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
 import { resolveErrorMessage } from './error-messages'
 
 export class HttpApiClient implements ApiClient {
@@ -19,6 +19,7 @@ export class HttpApiClient implements ApiClient {
     return user
   }
   async listTrips() { return (await this.request<unknown[]>('/trips')).map(normalizeTrip) }
+  async listMyTrips(role: 'joined' | 'published') { return (await this.request<unknown[]>(`/trips/mine?role=${role}`)).map(normalizeTrip) }
   async getTrip(tripId: string) { return normalizeTrip(await this.request<unknown>(`/trips/${tripId}`)) }
   async createTrip(input: CreateTripInput, idempotencyKey: string) {
     // 后端 DTO 收 departTime，前端统一用 departureAt，这里做一次映射。
@@ -35,10 +36,14 @@ export class HttpApiClient implements ApiClient {
     return this.write<{ id: string; createdAt: string }>(`/trips/${encodeURIComponent(tripId)}/sos`, rest, idempotencyKey)
   }
   // 后端返回 { messages, hasMore, nextCursor } 游标分页结构，这里取 messages 以符合前端契约。
-  async listMessages(tripId: string) {
-    const body = await this.request<{ messages: ChatMessage[] }>(`/trips/${encodeURIComponent(tripId)}/messages`)
-    return body.messages ?? []
+  async listMessagesPage(tripId: string, options: { before?: string; limit?: number } = {}): Promise<MessagePage> {
+    const query = new URLSearchParams()
+    if (options.before) query.set('before', options.before)
+    if (options.limit) query.set('limit', String(options.limit))
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    return this.request<MessagePage>(`/trips/${encodeURIComponent(tripId)}/messages${suffix}`)
   }
+  async listMessages(tripId: string) { return (await this.listMessagesPage(tripId)).messages }
 
   // 后端在响应里附带 duplicate 标记（幂等命中），前端不需要它。
   async sendMessage(tripId: string, text: string, idempotencyKey: string) {
@@ -47,6 +52,11 @@ export class HttpApiClient implements ApiClient {
   }
   // 后端订单路径是 /fare-orders/:id。
   getOrder(orderId: string) { return this.request<Order>(`/fare-orders/${encodeURIComponent(orderId)}`) }
+  confirmOrder(orderId: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/confirm`, {}, crypto.randomUUID()) }
+  disputeOrder(orderId: string, reason: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/dispute`, { reason }, crypto.randomUUID()) }
+  updateVehicle(tripId: string, input: Vehicle) { return this.write(`/trips/${encodeURIComponent(tripId)}/vehicle`, input, crypto.randomUUID()) }
+  openRide(tripId: string, platform: string) { return this.write(`/trips/${encodeURIComponent(tripId)}/ride/open`, { platform }, crypto.randomUUID()) }
+  addEmergencyContact(input: EmergencyContact) { return this.write('/emergency-contacts', input, crypto.randomUUID()) }
 
   // 评价以真实 fareOrderId 发起，后端会由订单反查行程并校验双方成员关系。
   async submitReview(input: ReviewInput, idempotencyKey: string) {
@@ -99,5 +109,7 @@ function normalizeTrip(value: unknown): Trip {
   const reasons = Array.isArray(raw.recommendationReasons) ? raw.recommendationReasons : Array.isArray(raw.reasonCodes) ? raw.reasonCodes : []
   const reasonMap: Record<string, Trip['recommendationReasons'][number]> = { OPEN_SLOT: 'AVAILABLE', TIME_CLOSE: 'TIME_CLOSE', RELIABLE: 'RELIABLE', VERIFIED: 'VERIFIED', AVAILABLE: 'AVAILABLE' }
   const fareOrders = Array.isArray(raw.fareOrders) ? raw.fareOrders as Array<Record<string, unknown>> : []
-  return { ...raw, departureAt: String(raw.departureAt ?? raw.departTime ?? ''), activeMemberCount: Number(raw.activeMemberCount ?? raw.memberCount ?? 0), fareOrderId: raw.fareOrderId ?? fareOrders[0]?.id, recommendationReasons: reasons.map((reason) => reasonMap[String(reason)]).filter(Boolean) } as Trip
+  const members = Array.isArray(raw.members) ? raw.members as Trip['members'] : undefined
+  const memberTotal = members?.reduce((total, member) => total + Number(member?.memberCount ?? 1), 0)
+  return { ...raw, departureAt: String(raw.departureAt ?? raw.departTime ?? ''), activeMemberCount: Number(raw.activeMemberCount ?? raw.memberCount ?? memberTotal ?? 0), fareOrderId: raw.fareOrderId ?? fareOrders[0]?.id, members, recommendationReasons: reasons.map((reason) => reasonMap[String(reason)]).filter(Boolean) } as Trip
 }
