@@ -1,5 +1,6 @@
-export type TripStatus = 'RECRUITING' | 'CONFIRMING' | 'FORMED' | 'CANCELLED' | 'EXPIRED'
+export type TripStatus = 'RECRUITING' | 'CONFIRMING' | 'FORMED' | 'WAITING_RIDE' | 'RIDE_BOOKED' | 'PENDING_SETTLEMENT' | 'SETTLED' | 'PENDING_REVIEW' | 'ARCHIVED' | 'ORDER_DISPUTED' | 'CANCELLED' | 'EXPIRED'
 export type JoinRequestStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'RELEASED'
+export type MyTripRole = 'joined' | 'published'
 
 export interface ApiErrorShape {
   code: string
@@ -33,6 +34,9 @@ export interface Trip {
   retractUntil?: string
   confirmationId?: string
   fareOrderId?: string
+  disputeLocked?: boolean
+  role?: MyTripRole
+  members?: Array<{ id?: string; userId: string; role?: string; memberCount: number; nickname?: string | null }>
 }
 
 export interface JoinTripInput { memberCount: 1 | 2 }
@@ -40,9 +44,12 @@ export interface JoinRequest { id: string; tripId: string; memberCount: 1 | 2; s
 export interface CreateTripInput { origin: string; destination: string; departureAt: string; capacity: 3 | 4 }
 export interface SosInput { tripId?: string; note?: string }
 export interface ChatMessage { id: string; senderId: string; text: string; createdAt: string }
+export interface MessagePage { messages: ChatMessage[]; hasMore: boolean; nextCursor: string | null }
 export interface CostShare { mode: 'EQUAL'|'FIXED'|'CUSTOM'; amountCents: number; confirmed: boolean }
 export interface Vehicle { plate: string; model?: string; color?: string }
-export interface Order { id: string; tripId: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare }
+export interface RideLaunch { launch: { supported: boolean; copyRouteRequired: boolean }; status?: string }
+export interface EmergencyContact { id: string; name: string; phone: string }
+export interface Order { id: string; tripId: string; status?: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare; totalAmountCents?: number }
 export interface ReviewInput { fareOrderId: string; targetUserId: string; dimensions: { punctuality:number; communication:number; safety:number; fairness:number }; comment?: string; anonymous: boolean }
 
 export interface ApiClient {
@@ -50,14 +57,22 @@ export interface ApiClient {
   verifyCode(phone: string, code: string, idempotencyKey: string): Promise<SessionUser>
   devLogin(phone: string): Promise<SessionUser>
   listTrips(): Promise<Trip[]>
+  listMyTrips(role: MyTripRole): Promise<Trip[]>
   getTrip(tripId: string): Promise<Trip>
   createTrip(input: CreateTripInput, idempotencyKey: string): Promise<Trip>
   joinTrip(tripId: string, input: JoinTripInput, idempotencyKey: string): Promise<JoinRequest>
   confirmTrip(tripId: string, idempotencyKey: string): Promise<Trip>
   withdrawConfirmation(tripId: string, confirmationId: string, idempotencyKey: string): Promise<Trip>
+  confirmFareOrder(orderId: string, idempotencyKey: string): Promise<unknown>
+  disputeFareOrder(orderId: string, reason: string, idempotencyKey: string): Promise<unknown>
+  markPayment(orderId: string, amountCents: number | undefined, idempotencyKey: string): Promise<unknown>
+  updateVehicle(tripId: string, vehicle: Vehicle, idempotencyKey: string): Promise<Vehicle>
+  openRide(tripId: string, platform: string, idempotencyKey: string): Promise<RideLaunch>
   createSosEvent(input: SosInput, idempotencyKey: string): Promise<{ id: string; createdAt: string }>
   listMessages(tripId: string): Promise<ChatMessage[]>
+  listMessagesPage(tripId: string, options?: { before?: string; limit?: number }): Promise<MessagePage>
   sendMessage(tripId: string, text: string, idempotencyKey: string): Promise<ChatMessage>
   getOrder(orderId: string): Promise<Order>
   submitReview(input: ReviewInput, idempotencyKey: string): Promise<void>
+  addEmergencyContact(input: { name: string; phone: string }, idempotencyKey: string): Promise<EmergencyContact>
 }

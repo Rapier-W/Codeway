@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip } from './contracts'
+import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type MyTripRole, type MessagePage, type Vehicle, type RideLaunch, type EmergencyContact } from './contracts'
 
 const sampleTrips: Trip[] = [
   { id: 'trip-1', origin: '大学城南门', destination: '火车站', departureAt: '2026-08-25T20:00:00+08:00', capacity: 4, activeMemberCount: 1, status: 'RECRUITING', recommendationReasons: ['TIME_CLOSE', 'VERIFIED', 'AVAILABLE'] },
@@ -39,6 +39,7 @@ export class MockApiClient implements ApiClient {
       .filter((trip) => trip.status === 'RECRUITING' && trip.activeMemberCount < trip.capacity)
       .map((trip) => structuredClone(trip))
   }
+  async listMyTrips(role: MyTripRole): Promise<Trip[]> { return this.trips.filter((trip) => role === 'published' ? trip.id === 'trip-1' : trip.id !== 'trip-full').map((trip) => ({ ...structuredClone(trip), role })) }
   async getTrip(tripId: string): Promise<Trip> {
     return this.findTrip(tripId)
   }
@@ -85,11 +86,18 @@ export class MockApiClient implements ApiClient {
     trip.confirmedCount = 0; trip.retractUntil = undefined; trip.confirmationId = undefined
     return structuredClone(trip)
   }
+  async confirmFareOrder(_orderId: string) { return { locked: false, duplicate: false } }
+  async disputeFareOrder(_orderId: string, _reason: string) { return { locked: true, duplicate: false } }
+  async markPayment(_orderId: string, _amountCents: number | undefined) { return { locked: false, duplicate: false } }
+  async updateVehicle(_tripId: string, vehicle: Vehicle) { return structuredClone(vehicle) }
+  async openRide(_tripId: string, _platform: string): Promise<RideLaunch> { return { launch: { supported: false, copyRouteRequired: true } } }
   async createSosEvent(_input: SosInput, _idempotencyKey: string): Promise<{ id: string; createdAt: string }> { return { id: 'sos-1', createdAt: new Date().toISOString() } }
-  async listMessages(_tripId: string) { return [{ id: 'msg-1', senderId: 'user-demo', text: '大家好，费用先按等额确认。', createdAt: new Date().toISOString() }] }
+  async listMessages(_tripId: string) { return (await this.listMessagesPage(_tripId)).messages }
+  async listMessagesPage(_tripId: string): Promise<MessagePage> { return { messages: [{ id: 'msg-1', senderId: 'user-demo', text: '大家好，费用先按等额确认。', createdAt: new Date().toISOString() }], hasMore: false, nextCursor: null } }
   async sendMessage(_tripId: string, text: string, _idempotencyKey: string) { return { id: `msg-${Date.now()}`, senderId: 'user-demo', text, createdAt: new Date().toISOString() } }
   async getOrder(orderId: string) { return { id: orderId, tripId: 'trip-1', disputed: false, settlementLocked: false, costShare: { mode: 'EQUAL' as const, amountCents: 1200, confirmed: false } } }
   async submitReview(_input: import('./contracts').ReviewInput, _idempotencyKey: string) {}
+  async addEmergencyContact(input: { name: string; phone: string }): Promise<EmergencyContact> { return { id: `contact-${Date.now()}`, ...input } }
 
   private findTrip(tripId: string) {
     return structuredClone(this.findTripReference(tripId))
