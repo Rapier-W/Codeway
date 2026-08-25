@@ -1,4 +1,5 @@
 import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type ChatMessage, type Order, type ReviewInput } from './contracts'
+import { resolveErrorMessage } from './error-messages'
 
 export class HttpApiClient implements ApiClient {
   // 开发联调占位：当前用户 id，登录成功后写入，作为 x-user-id 头带给后端。Task 5 换成 Cookie 会话后删除。
@@ -39,11 +40,21 @@ export class HttpApiClient implements ApiClient {
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${path}`, { credentials: 'include', ...init, headers: { ...this.authHeaders(), ...(init.headers as Record<string, string> | undefined) } })
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({})) as { code?: string; message?: string }
-      throw new ApiError(body.code ?? (response.status === 409 ? 'STATE_CONFLICT' : 'REQUEST_FAILED'), body.message ?? '请求失败，请稍后再试', response.status)
+    let response: Response
+    try {
+      response = await fetch(`${this.baseUrl}${path}`, { credentials: 'include', ...init, headers: { ...this.authHeaders(), ...(init.headers as Record<string, string> | undefined) } })
+    } catch {
+      // fetch 只在网络层失败时抛异常，这里转成统一的 ApiError 而不是让调用方看到原始 TypeError。
+      throw new ApiError('NETWORK_ERROR', resolveErrorMessage('NETWORK_ERROR'), 0)
     }
+
+    if (!response.ok) {
+      // 后端统一返回 { code, message, statusCode }；code 是业务错误码，需翻译成可读文案。
+      const body = await response.json().catch(() => ({})) as { code?: string; message?: string }
+      const code = body.code ?? (response.status === 409 ? 'STATE_CONFLICT' : 'REQUEST_FAILED')
+      throw new ApiError(code, resolveErrorMessage(code, body.message), response.status)
+    }
+
     return response.status === 204 ? undefined as T : response.json() as Promise<T>
   }
 

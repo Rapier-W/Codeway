@@ -1,18 +1,60 @@
-import { Body, Controller, Headers, Param, Post, Get, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { CurrentUserId } from '../common/current-user.decorator';
 import { PlatformService } from './platform.service';
+
 @Controller()
 export class PlatformController {
   constructor(private readonly service: PlatformService) {}
-  private uid(req: any, headers: any) { return req.user?.id || headers['x-user-id']; }
-  @Post('auth/phone') verify(@Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.verifyPhone(this.uid(req, h), body.phone); }
-  // 开发联调占位：Task 3 专用，用任意手机号换取一个 userId，无需验证码。Task 5 上线前必须删除。
-  @Post('auth/dev-login') devLogin(@Body() body: any) { return this.service.devLogin(String(body?.phone ?? 'dev-user')); }
-  @Get('auth/me') me(@Req() req: any, @Headers() h: any) { return this.service.me(this.uid(req, h)); }
-  @Post('trips/:id/ride/open') openRide(@Param('id') id: string, @Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.openRide(id, this.uid(req, h), body.platform); }
-  @Post('trips/:id/vehicle') vehicle(@Param('id') id: string, @Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.updateVehicle(id, this.uid(req, h), body); }
-  @Post('trips/:id/sos') sos(@Param('id') id: string, @Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.triggerSos(id, this.uid(req, h), body); }
-  @Post('emergency-contacts') contact(@Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.addEmergencyContact(this.uid(req, h), body); }
-  @Post('trips/:id/reviews') review(@Param('id') id: string, @Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.createReview(id, this.uid(req, h), body); }
-  @Post('reports') report(@Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.createReport(this.uid(req, h), body); }
-  @Post('analytics/events') analytics(@Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.recordAnalytics(this.uid(req, h), body); }
+
+  @Post('auth/phone')
+  verify(@CurrentUserId() userId: string, @Body() body: any) {
+    return this.service.verifyPhone(userId, body.phone);
+  }
+
+  // 开发联调占位：Task 3 专用，用任意手机号换取一个 userId，无需验证码。
+  // service 内已有 NODE_ENV=production 守卫；Task 5 接入真实会话后必须删除。
+  @Post('auth/dev-login')
+  devLogin(@Body() body: any) {
+    return this.service.devLogin(String(body?.phone ?? 'dev-user'));
+  }
+
+  @Get('auth/me')
+  me(@CurrentUserId() userId: string) {
+    return this.service.me(userId);
+  }
+
+  @Post('trips/:id/ride/open')
+  openRide(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any) {
+    return this.service.openRide(id, userId, body.platform);
+  }
+
+  @Post('trips/:id/vehicle')
+  vehicle(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any) {
+    return this.service.updateVehicle(id, userId, body);
+  }
+
+  @Post('trips/:id/sos')
+  sos(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any) {
+    return this.service.triggerSos(id, userId, body);
+  }
+
+  @Post('emergency-contacts')
+  contact(@CurrentUserId() userId: string, @Body() body: any) {
+    return this.service.addEmergencyContact(userId, body);
+  }
+
+  @Post('trips/:id/reviews')
+  review(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any) {
+    return this.service.createReview(id, userId, body);
+  }
+
+  @Post('reports')
+  report(@CurrentUserId() userId: string, @Body() body: any) {
+    return this.service.createReport(userId, body);
+  }
+
+  @Post('analytics/events')
+  analytics(@CurrentUserId() userId: string, @Body() body: any) {
+    return this.service.recordAnalytics(userId, body);
+  }
 }
