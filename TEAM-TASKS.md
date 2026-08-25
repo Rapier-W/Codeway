@@ -71,12 +71,13 @@
 
 ## FIX-20260825-01 队友 HTTP 分支回归修复
 
-- 状态：**真实 PostgreSQL 验收通过，待最终复核、合并 master 与推送**。
+- 状态：**真实 PostgreSQL 验收、master 合并、E 盘同步与 GitHub 推送均已完成**。
 - 已集成：保留聊天 REST、DTO 和统一错误；恢复创建行程幂等 migration 与并发 P2002 回读；恢复确认响应 Adapter；SOS 改为成员校验、幂等且不持久化坐标；订单详情使用真实 `fareOrderId`；评价改为订单反查行程并校验成员、非自评、目标同程、评分 DTO、争议锁与幂等；聊天 P2002 并发幂等回读；生产环境拒绝 `x-user-id` 身份伪造；费用状态机补 `ORDER_DISPUTED`，统一费用实现，并在全员费用确认后真实推进 `PENDING_SETTLEMENT → SETTLED → PENDING_REVIEW`。
 - 测试资产：新增 `apps/api/test/postgres-http.e2e-spec.ts` 和 `npm run test:e2e:postgres`，覆盖创建、聊天、SOS、订单争议与评价的真实 PostgreSQL HTTP 闭环；已使用隔离 `tongluxing_e2e` 数据库执行。
 - 已验证：正式库 `tongluxing` 与隔离库 `tongluxing_e2e` migrations 均 up to date；真实 PostgreSQL HTTP E2E `1 suite / 5 tests` 通过；API `npm run build`；默认测试 `9 suites / 33 tests`；Web `typecheck`、PWA build、`11 files / 20 tests`；`prisma validate` 和 `git diff --check`。
 - 历史阻塞已解除：当前分支 `.env` 已配置 `DATABASE_URL=localhost:5433/tongluxing` 与独立 `E2E_DATABASE_URL=localhost:5433/tongluxing_e2e`，两者认证均通过。
 - 协作：Reasonix 完成独立高风险审查并发现订单状态机缺口，已纳入修复；Kimi Code CLI 已调用两次，但分别因会话存储权限与 `agent.activity.updated` 生命周期错误退出，未对工作树产生修改。
+- 交付：本地 master merge commit 为 `7852173`，Web 旧回归测试修正为 `ef2361c`；E:\Codeway 已同步；GitHub `origin/master` 已推送发布提交 `d522553`，发布 tree 排除了 `AGENTS.md` 与 `TEAM-TASKS.md`。
 
 # Task 3 frontend status
 
