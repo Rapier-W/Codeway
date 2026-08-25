@@ -29,6 +29,10 @@ export class MockApiClient implements ApiClient {
     return { id: 'user-demo', nickname: '演示用户', phoneVerified: true }
   }
 
+  async devLogin(phone: string): Promise<SessionUser> {
+    return { id: `dev-${phone.replace(/\D/g, '') || 'user'}`, nickname: '开发用户', phoneVerified: true }
+  }
+
   async listTrips(): Promise<Trip[]> {
     this.throwConfiguredFailure('listTrips')
     return this.trips

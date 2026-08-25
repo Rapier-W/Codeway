@@ -32,6 +32,7 @@ export interface Trip {
   confirmedCount?: number
   retractUntil?: string
   confirmationId?: string
+  fareOrderId?: string
 }
 
 export interface JoinTripInput { memberCount: 1 | 2 }
@@ -42,11 +43,12 @@ export interface ChatMessage { id: string; senderId: string; text: string; creat
 export interface CostShare { mode: 'EQUAL'|'FIXED'|'CUSTOM'; amountCents: number; confirmed: boolean }
 export interface Vehicle { plate: string; model?: string; color?: string }
 export interface Order { id: string; tripId: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare }
-export interface ReviewInput { orderId: string; dimensions: { punctuality:number; communication:number; safety:number; fairness:number }; comment?: string; anonymous: boolean }
+export interface ReviewInput { fareOrderId: string; targetUserId: string; dimensions: { punctuality:number; communication:number; safety:number; fairness:number }; comment?: string; anonymous: boolean }
 
 export interface ApiClient {
   requestCode(phone: string, idempotencyKey: string): Promise<void>
   verifyCode(phone: string, code: string, idempotencyKey: string): Promise<SessionUser>
+  devLogin(phone: string): Promise<SessionUser>
   listTrips(): Promise<Trip[]>
   getTrip(tripId: string): Promise<Trip>
   createTrip(input: CreateTripInput, idempotencyKey: string): Promise<Trip>

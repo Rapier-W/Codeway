@@ -9,6 +9,7 @@ describe('FareService', () => {
     tripMember: { findUnique: jest.fn() },
     fareDispute: { create: jest.fn(), findFirst: jest.fn() },
     paymentMark: { upsert: jest.fn() },
+    review: { findUnique: jest.fn(), create: jest.fn() },
     auditLog: { create: jest.fn() },
   };
   const prisma: any = { $transaction: jest.fn((fn: any) => fn(tx)) };
@@ -58,5 +59,26 @@ describe('FareService', () => {
     await expect(service.confirmOrder('fo1', 'u2')).rejects.toBeInstanceOf(ConflictException);
     expect(tx.fareOrder.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'MANUAL_REVIEW' } }));
     expect(tx.fareOrderConfirmation.create).not.toHaveBeenCalled();
+  });
+
+  it('moves the trip into the review window after all members confirm the order', async () => {
+    tx.fareOrder.findUnique.mockResolvedValue({ id: 'fo1', tripId: 't1', status: 'PENDING_CONFIRMATION', createdAt: new Date() });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'PENDING_SETTLEMENT', disputeLocked: false, members: [{ userId: 'u1' }, { userId: 'u2' }] });
+    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u2' });
+    tx.fareOrderConfirmation.findUnique.mockResolvedValue(null);
+    tx.fareOrderConfirmation.create.mockResolvedValue({ id: 'fc1', fareOrderId: 'fo1', userId: 'u2' });
+    tx.fareOrderConfirmation.count.mockResolvedValue(2);
+    tx.fareOrder.update.mockResolvedValue({ id: 'fo1', status: 'CONFIRMED' });
+    await service.confirmOrder('fo1', 'u2');
+    expect(tx.trip.update).toHaveBeenNthCalledWith(1, expect.objectContaining({ data: expect.objectContaining({ status: 'SETTLED' }) }));
+    expect(tx.trip.update).toHaveBeenNthCalledWith(2, expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING_REVIEW' }) }));
+  });
+
+  it('rejects self-review and does not persist it', async () => {
+    tx.fareOrder.findUnique.mockResolvedValue({ id: 'fo1', tripId: 't1', status: 'CONFIRMED' });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'PENDING_REVIEW', disputeLocked: false, members: [{ userId: 'u1' }] });
+    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1' });
+    await expect(service.createReview('fo1', 'u1', { targetUserId: 'u1', punctuality: 5, safety: 5, politeness: 5, communication: 5 } as any, 'review-key')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.review.create).not.toHaveBeenCalled();
   });
 });

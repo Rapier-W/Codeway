@@ -20,4 +20,13 @@ export default defineConfig({
       workbox: { globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'] },
     }),
   ],
+  server: {
+    proxy: {
+      // Task 3 integration: forward /api to the local NestJS backend.
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
+    },
+  },
 })

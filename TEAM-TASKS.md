@@ -1,7 +1,5 @@
 # TEAM-TASKS.md — 同路行当前任务状态
 
-> 架构基线更新（2026-08-24）：客户端由微信小程序切换为 Vue 3 + Vite + TypeScript + Vant + Pinia + PWA；认证改为七牛云短信验证码 + HttpOnly Cookie；单台 VM 的目标生产拓扑使用 Docker Compose 运行 Nginx、Web、NestJS API 和 PostgreSQL；地图统一高德；聊天采用 Socket.IO + PostgreSQL，Redis 暂不接入。
-
 > Codex 统筹者每次会话开始必读；任务分配或状态变化时追加/更新记录，保留历史。
 
 ## 协作架构
@@ -24,6 +22,7 @@
 | WEB-20260824-01 | Vue 3 + Vite + Vant + Pinia + PWA 基础工程、契约 Adapter 与 Mock | Codex + 实现代理 | 已完成 | `apps/web/`、`docs/superpowers/specs/2026-08-24-web-pwa-design.md`、`docs/superpowers/plans/2026-08-24-web-pwa.md` | 2026-08-24 |
 | WEB-20260824-02 | 登录、行程列表/筛选、发布、详情、加入申请与访问保护 | Codex + Reasonix 复核 | 已完成 | `apps/web/src/views/`、`apps/web/src/components/`、`apps/web/src/api/`、`apps/web/src/router/` | 2026-08-24 |
 | DEV-20260823-01 | Task 1：NestJS + Prisma 后端骨架与数据库基线 | Kimi K3 → Codex | 已完成 | `apps/api/`、`docker-compose.yml`、`.env.example` | 2026-08-23 |
+| DEV-20260823-02 | Task 2:行程域与容量安全加入流程(发布/列表/容量/幂等) | Codex + Reasonix 复核 | 已完成 | `apps/api/src/trips/`、`apps/api/test/trips.e2e-spec.ts`、`test/real-capacity-concurrency.e2e-spec.ts` | 2026-08-24 |
 
 ## Task 1 后端审查记录
 
@@ -70,6 +69,15 @@
 - Kimi CLI 凭据轮换后改用环境变量注入；不得将新凭据写入仓库。
 - 域名、HTTPS、小程序服务器域名、七牛云 VM 规格和备份策略在部署任务开始前补齐。
 
+## FIX-20260825-01 队友 HTTP 分支回归修复
+
+- 状态：**真实 PostgreSQL 验收通过，待最终复核、合并 master 与推送**。
+- 已集成：保留聊天 REST、DTO 和统一错误；恢复创建行程幂等 migration 与并发 P2002 回读；恢复确认响应 Adapter；SOS 改为成员校验、幂等且不持久化坐标；订单详情使用真实 `fareOrderId`；评价改为订单反查行程并校验成员、非自评、目标同程、评分 DTO、争议锁与幂等；聊天 P2002 并发幂等回读；生产环境拒绝 `x-user-id` 身份伪造；费用状态机补 `ORDER_DISPUTED`，统一费用实现，并在全员费用确认后真实推进 `PENDING_SETTLEMENT → SETTLED → PENDING_REVIEW`。
+- 测试资产：新增 `apps/api/test/postgres-http.e2e-spec.ts` 和 `npm run test:e2e:postgres`，覆盖创建、聊天、SOS、订单争议与评价的真实 PostgreSQL HTTP 闭环；已使用隔离 `tongluxing_e2e` 数据库执行。
+- 已验证：正式库 `tongluxing` 与隔离库 `tongluxing_e2e` migrations 均 up to date；真实 PostgreSQL HTTP E2E `1 suite / 5 tests` 通过；API `npm run build`；默认测试 `9 suites / 33 tests`；Web `typecheck`、PWA build、`11 files / 20 tests`；`prisma validate` 和 `git diff --check`。
+- 历史阻塞已解除：当前分支 `.env` 已配置 `DATABASE_URL=localhost:5433/tongluxing` 与独立 `E2E_DATABASE_URL=localhost:5433/tongluxing_e2e`，两者认证均通过。
+- 协作：Reasonix 完成独立高风险审查并发现订单状态机缺口，已纳入修复；Kimi Code CLI 已调用两次，但分别因会话存储权限与 `agent.activity.updated` 生命周期错误退出，未对工作树产生修改。
+
 # Task 3 frontend status
 
 - Commit `ee77032`: login, trip discovery/filtering, publish validation, detail and join sheet.
@@ -100,12 +108,3 @@
 - 状态：进行中
 - 当前证据：完整 Vitest 11 suites/20 tests passed；typecheck、生产 build（含 PWA manifest/sw）和 git diff --check 通过。
 - 剩余：页面连通性与聊天/评价反馈细节继续收敛；HTTP 路径仍需以后端 OpenAPI 最终契约对齐。
-
-## DEV-20260824-07 Task 3 前后端真实 HTTP 联调
-
-- 状态：已完成本地闭环，生产认证与第三方服务仍未接入。
-- 产出：`apps/web/src/api/http-client.ts`、`apps/web/src/api/http-client.spec.ts`、开发验证码接口、CORS、创建行程幂等键字段与 migration `apps/api/prisma/migrations/20260824200000_http_idempotency/`。
-- 开发联调约定：`POST /auth/request-code` + `POST /auth/verify-code`，验证码固定 `123456`；验证后前端仅在本地 `localStorage` 保存开发用户 ID，并通过 `x-user-id` 发送。生产必须替换为 HttpOnly Cookie/正式会话，禁止沿用开发验证码。
-- 真实 HTTP 验证：本机 NestJS `http://localhost:3000` + PostgreSQL `localhost:5433` 已完成请求验证码、验证用户、发布行程、创建幂等重试、列表、详情、加入幂等重试、双向确认 `CONFIRMING → FORMED`、15 秒窗口内撤回回退 `RECRUITING`。
-- 验证命令：后端 `npm run build`；`npx jest --runInBand`（8 suites/31 tests）；`npx prisma migrate deploy`、`npx prisma migrate status`（3 migrations/up to date）；前端 HTTP Adapter 2 tests passed。
-- 已知边界：`npm run start` 已修正为 `node dist/src/main.js`；聊天、订单、评价的完整 HTTP 路由尚未补齐；未接入真实短信、微信登录、Kodo、高德或第三方叫车。
