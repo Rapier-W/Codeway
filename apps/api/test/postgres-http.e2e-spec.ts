@@ -10,6 +10,9 @@ import { AppModule } from '../src/app.module';
 import { configureHttpApp } from '../src/http-app';
 import { PrismaService } from '../src/prisma.service';
 
+// Nest + Prisma 在 Windows 本机首次启动可能超过 Jest 默认 5 秒。
+jest.setTimeout(60_000);
+
 const creatorId = '11111111-1111-4111-8111-111111111111';
 const memberId = '22222222-2222-4222-8222-222222222222';
 const outsiderId = '33333333-3333-4333-8333-333333333333';
@@ -34,7 +37,7 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     await prisma.user.upsert({ where: { id: outsiderId }, update: { phoneVerified: true }, create: { id: outsiderId, phone: '13900000003', phoneVerified: true } });
   });
 
-  afterAll(async () => { await app?.close(); });
+  afterAll(async () => { await prisma?.$disconnect(); await app?.close(); });
 
   it('creates a trip idempotently and permits a member join', async () => {
     const body = { origin: 'E2E 起点', destination: 'E2E 终点', departTime: new Date(Date.now() + 3_600_000).toISOString(), capacity: 3 };
