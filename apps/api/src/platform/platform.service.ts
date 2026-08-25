@@ -14,6 +14,15 @@ export class PlatformService {
   }
   me(userId: string) { const where = { where: { id: this.userId(userId) } }; return this.prisma.user?.findUnique ? this.prisma.user.findUnique(where) : this.tx(async tx => tx.user.findUnique(where)); }
 
+  // 开发联调占位：Task 3 专用。用手机号生成/复用一个已验证用户并返回其 id，供前端作为 x-user-id。Task 5 必须删除。
+  // 运行时守卫：生产环境直接拒绝，避免误部署造成认证绕过。
+  devLogin(phone: string) {
+    if (process.env.NODE_ENV === 'production') throw new NotFoundException();
+    const id = `dev-${phone.replace(/\D/g, '') || 'user'}`;
+    const data = { where: { id }, create: { id, phone, phoneVerified: true }, update: {} };
+    return this.prisma.user?.upsert ? this.prisma.user.upsert(data) : this.tx(async tx => tx.user.upsert(data));
+  }
+
   async openRide(tripId: string, userId: string, platform: string) {
     return this.tx(async tx => {
       const trip = await tx.trip.findUnique({ where: { id: tripId } });

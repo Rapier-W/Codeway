@@ -47,6 +47,7 @@ export interface ReviewInput { orderId: string; dimensions: { punctuality:number
 export interface ApiClient {
   requestCode(phone: string, idempotencyKey: string): Promise<void>
   verifyCode(phone: string, code: string, idempotencyKey: string): Promise<SessionUser>
+  devLogin(phone: string): Promise<SessionUser>
   listTrips(): Promise<Trip[]>
   getTrip(tripId: string): Promise<Trip>
   createTrip(input: CreateTripInput, idempotencyKey: string): Promise<Trip>

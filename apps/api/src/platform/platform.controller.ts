@@ -5,6 +5,8 @@ export class PlatformController {
   constructor(private readonly service: PlatformService) {}
   private uid(req: any, headers: any) { return req.user?.id || headers['x-user-id']; }
   @Post('auth/phone') verify(@Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.verifyPhone(this.uid(req, h), body.phone); }
+  // 开发联调占位：Task 3 专用，用任意手机号换取一个 userId，无需验证码。Task 5 上线前必须删除。
+  @Post('auth/dev-login') devLogin(@Body() body: any) { return this.service.devLogin(String(body?.phone ?? 'dev-user')); }
   @Get('auth/me') me(@Req() req: any, @Headers() h: any) { return this.service.me(this.uid(req, h)); }
   @Post('trips/:id/ride/open') openRide(@Param('id') id: string, @Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.openRide(id, this.uid(req, h), body.platform); }
   @Post('trips/:id/vehicle') vehicle(@Param('id') id: string, @Req() req: any, @Headers() h: any, @Body() body: any) { return this.service.updateVehicle(id, this.uid(req, h), body); }

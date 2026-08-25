@@ -9,5 +9,7 @@ export const useSessionStore = defineStore('session', () => {
   const loading = ref(false)
   async function requestCode(phone: string, client: ApiClient = createApiClient()) { await client.requestCode(phone, createIdempotencyKey()) }
   async function verifyCode(phone: string, code: string, client: ApiClient = createApiClient()) { loading.value = true; try { user.value = await client.verifyCode(phone, code, createIdempotencyKey()) } finally { loading.value = false } }
-  return { user, loading, requestCode, verifyCode }
+  // 开发联调占位：Task 3 用 dev-login 直接登录，跳过短信验证码。Task 5 移除。
+  async function devLogin(phone: string, client: ApiClient = createApiClient()) { loading.value = true; try { user.value = await client.devLogin(phone) } finally { loading.value = false } }
+  return { user, loading, requestCode, verifyCode, devLogin }
 })
