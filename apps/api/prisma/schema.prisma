@@ -1,7 +1,7 @@
-// 同路行后端数据库基线（PostgreSQL）
-// 容量规则：Trip.capacity 只能是 3 或 4，且总人数含发单人。
-// Prisma schema 无法表达 CHECK 约束，3|4、状态/角色/席位和推荐理由校验
-// 在应用层与 prisma/migrations/20260824190000_trip_domain_checks 中共同强制。
+// 鍚岃矾琛屽悗绔暟鎹簱鍩虹嚎锛圥ostgreSQL锛?
+// 瀹归噺瑙勫垯锛歍rip.capacity 鍙兘鏄?3 鎴?4锛屼笖鎬讳汉鏁板惈鍙戝崟浜恒€?
+// Prisma schema 鏃犳硶琛ㄨ揪 CHECK 绾︽潫锛?|4銆佺姸鎬?瑙掕壊/甯綅鍜屾帹鑽愮悊鐢辨牎楠?
+// 鍦ㄥ簲鐢ㄥ眰涓?prisma/migrations/20260824190000_trip_domain_checks 涓叡鍚屽己鍒躲€?
 
 generator client {
   provider = "prisma-client-js"
@@ -15,8 +15,8 @@ datasource db {
 model User {
   id              String   @id @default(uuid())
   phone           String?  @unique
-  phoneVerified   Boolean  @default(false) // 未完成手机号验证只能浏览
-  studentVerified Boolean  @default(false) // 学生认证仅信任标签，不拦截
+  phoneVerified   Boolean  @default(false) // 鏈畬鎴愭墜鏈哄彿楠岃瘉鍙兘娴忚
+  studentVerified Boolean  @default(false) // 瀛︾敓璁よ瘉浠呬俊浠绘爣绛撅紝涓嶆嫤鎴?
   nickname        String?
   gender          String?
   creditScore     Int      @default(100)
@@ -26,6 +26,7 @@ model User {
   createdTrips  Trip[]             @relation("TripCreator")
   memberships   TripMember[]
   confirmations TripConfirmation[]
+  chatMessages  ChatMessage[]
 
   @@map("users")
 }
@@ -37,11 +38,11 @@ model Trip {
   origin      String
   destination String
   departTime  DateTime
-  capacity    Int // 只允许 3 或 4，总人数含发单人；应用层 + SQL CHECK 强制
-  feePlan     Json? // 金额一律整数分
+  capacity    Int // 鍙厑璁?3 鎴?4锛屾€讳汉鏁板惈鍙戝崟浜猴紱搴旂敤灞?+ SQL CHECK 寮哄埗
+  feePlan     Json? // 閲戦涓€寰嬫暣鏁板垎
   femaleOnly  Boolean  @default(false)
-  status      String   @default("RECRUITING") // 招募中 → 双向确认中 → 已成团 → 待叫车 → 已叫车 → 行程结束待结算 → 结算完成 → 待评价 → 已归档
-  version     Int      @default(0) // 乐观锁，状态变更必须校验
+  status      String   @default("RECRUITING") // 鎷涘嫙涓?鈫?鍙屽悜纭涓?鈫?宸叉垚鍥?鈫?寰呭彨杞?鈫?宸插彨杞?鈫?琛岀▼缁撴潫寰呯粨绠?鈫?缁撶畻瀹屾垚 鈫?寰呰瘎浠?鈫?宸插綊妗?
+  version     Int      @default(0) // 涔愯閿侊紝鐘舵€佸彉鏇村繀椤绘牎楠?
   disputeLocked Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -55,8 +56,9 @@ model Trip {
   sosEvents       SosEvent[]
   reviews         Review[]
   reports         Report[]
+  chatMessages    ChatMessage[]
 
-  @@index([departTime]) // 列表按 depart_time ASC
+  @@index([departTime]) // 鍒楄〃鎸?depart_time ASC
   @@map("trips")
 }
 
@@ -67,13 +69,13 @@ model TripMember {
   userId      String
   user        User     @relation(fields: [userId], references: [id])
   role        String   @default("MEMBER") // CREATOR | MEMBER
-  memberCount Int      @default(1) // 该成员占用座位数：发单人=1，加入者=1 或 2
-  joinRequestKey String? @unique // 客户端请求幂等键
+  memberCount Int      @default(1) // 璇ユ垚鍛樺崰鐢ㄥ骇浣嶆暟锛氬彂鍗曚汉=1锛屽姞鍏ヨ€?1 鎴?2
+  joinRequestKey String? @unique // 瀹㈡埛绔姹傚箓绛夐敭
   joinedAt    DateTime @default(now())
 
   confirmations TripConfirmation[]
 
-  @@unique([tripId, userId]) // 幂等：同一用户在同一行程只有一条成员记录
+  @@unique([tripId, userId]) // 骞傜瓑锛氬悓涓€鐢ㄦ埛鍦ㄥ悓涓€琛岀▼鍙湁涓€鏉℃垚鍛樿褰?
   @@index([tripId, joinRequestKey])
   @@map("trip_members")
 }
@@ -86,10 +88,10 @@ model TripConfirmation {
   member         TripMember  @relation(fields: [memberId], references: [id])
   userId         String
   user           User        @relation(fields: [userId], references: [id])
-  status         String      @default("CONFIRMED") // CONFIRMED | VOID（回退作废）；userId 冗余字段必须与 member.userId 一致
+  status         String      @default("CONFIRMED") // CONFIRMED | VOID锛堝洖閫€浣滃簾锛夛紱userId 鍐椾綑瀛楁蹇呴』涓?member.userId 涓€鑷?
   confirmedAt    DateTime    @default(now())
-  retractUntil   DateTime? // 最后一名成员确认开启的 15 秒反悔窗口
-  idempotencyKey String?     @unique // 重复确认幂等
+  retractUntil   DateTime? // 鏈€鍚庝竴鍚嶆垚鍛樼‘璁ゅ紑鍚殑 15 绉掑弽鎮旂獥鍙?
+  idempotencyKey String?     @unique // 閲嶅纭骞傜瓑
   createdAt      DateTime    @default(now())
 
   @@map("trip_confirmations")
@@ -99,7 +101,7 @@ model RecommendationDecision {
   id        String   @id @default(uuid())
   tripId    String
   trip      Trip     @relation(fields: [tripId], references: [id])
-  reasons   String[] // SQL CHECK 强制白名单：TIME_CLOSE | RELIABLE | VERIFIED | OPEN_SLOT，最多 3 个，不影响排序
+  reasons   String[] // SQL CHECK 寮哄埗鐧藉悕鍗曪細TIME_CLOSE | RELIABLE | VERIFIED | OPEN_SLOT锛屾渶澶?3 涓紝涓嶅奖鍝嶆帓搴?
   decidedAt DateTime @default(now())
 
   @@map("recommendation_decisions")
@@ -109,7 +111,7 @@ model AuditLog {
   id        String   @id @default(uuid())
   tripId    String?
   actorId   String?
-  action    String // confirm | form-group | withdraw | rollback | duplicate-request 等
+  action    String // confirm | form-group | withdraw | rollback | duplicate-request 绛?
   payload   Json?
   createdAt DateTime @default(now())
 
@@ -267,4 +269,21 @@ model AnalyticsEvent {
   createdAt    DateTime @default(now())
   @@unique([eventKey])
   @@index([tripId])
+}
+
+model ChatMessage {
+  id          String   @id @default(uuid())
+  tripId      String
+  trip        Trip     @relation(fields: [tripId], references: [id])
+  senderId    String
+  sender      User     @relation(fields: [senderId], references: [id])
+  kind        String   @default("TEXT") // TEXT | CONFIRMATION_CARD
+  text        String   @db.VarChar(500) // 文本长度上限，防止超长消息
+  payload     Json? // 结构化确认卡片等附加数据
+  clientKey   String? // 客户端幂等键，重复发送返回首次结果
+  createdAt   DateTime @default(now())
+
+  @@unique([tripId, clientKey]) // 幂等：同一行程内同一客户端键只落一条
+  @@index([tripId, createdAt]) // 历史消息按时间分页
+  @@map("chat_messages")
 }

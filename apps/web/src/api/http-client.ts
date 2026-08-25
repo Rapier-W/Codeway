@@ -28,11 +28,38 @@ export class HttpApiClient implements ApiClient {
   joinTrip(tripId: string, input: JoinTripInput, idempotencyKey: string) { return this.write<JoinRequest>(`/trips/${tripId}/join`, input, idempotencyKey) }
   confirmTrip(tripId: string, idempotencyKey: string) { return this.write<Trip>(`/trips/${tripId}/confirmations`, {}, idempotencyKey) }
   withdrawConfirmation(tripId: string, confirmationId: string, idempotencyKey: string) { return this.write<Trip>(`/trips/${tripId}/confirmations/${confirmationId}/withdraw`, {}, idempotencyKey) }
-  createSosEvent(input: SosInput, idempotencyKey: string) { return this.write<{ id: string; createdAt: string }>('/sos-events', input, idempotencyKey) }
-  listMessages(tripId: string) { return this.request<ChatMessage[]>(`/trips/${encodeURIComponent(tripId)}/messages`) }
-  sendMessage(tripId: string, text: string, idempotencyKey: string) { return this.write<ChatMessage>(`/trips/${encodeURIComponent(tripId)}/messages`, { text }, idempotencyKey) }
-  getOrder(orderId: string) { return this.request<Order>(`/orders/${encodeURIComponent(orderId)}`) }
-  async submitReview(input: ReviewInput, idempotencyKey: string) { await this.write<void>('/reviews', input, idempotencyKey) }
+  // 后端 SOS 挂在行程下：POST /trips/:id/sos。tripId 缺失时无法上报，抛出可读错误而不是打 404。
+  async createSosEvent(input: SosInput, idempotencyKey: string) {
+    if (!input.tripId) throw new ApiError('SOS_TRIP_REQUIRED', resolveErrorMessage('SOS_TRIP_REQUIRED'), 400)
+    const { tripId, ...rest } = input
+    return this.write<{ id: string; createdAt: string }>(`/trips/${encodeURIComponent(tripId)}/sos`, rest, idempotencyKey)
+  }
+  // 后端返回 { messages, hasMore, nextCursor } 游标分页结构，这里取 messages 以符合前端契约。
+  async listMessages(tripId: string) {
+    const body = await this.request<{ messages: ChatMessage[] }>(`/trips/${encodeURIComponent(tripId)}/messages`)
+    return body.messages ?? []
+  }
+
+  // 后端在响应里附带 duplicate 标记（幂等命中），前端不需要它。
+  async sendMessage(tripId: string, text: string, idempotencyKey: string) {
+    const { duplicate: _duplicate, ...message } = await this.write<ChatMessage & { duplicate?: boolean }>(`/trips/${encodeURIComponent(tripId)}/messages`, { text }, idempotencyKey)
+    return message as ChatMessage
+  }
+  // 后端订单路径是 /fare-orders/:id。
+  getOrder(orderId: string) { return this.request<Order>(`/fare-orders/${encodeURIComponent(orderId)}`) }
+
+  // 后端评价挂在行程下：POST /trips/:id/reviews，且字段名与前端契约不同。
+  // 前端 ReviewInput.dimensions 用 fairness，后端 Review 模型用 politeness；tripId 由调用方通过 orderId 位置传入。
+  async submitReview(input: ReviewInput, idempotencyKey: string) {
+    const { orderId, dimensions, ...rest } = input
+    await this.write<void>(`/trips/${encodeURIComponent(orderId)}/reviews`, {
+      ...rest,
+      punctuality: dimensions.punctuality,
+      communication: dimensions.communication,
+      safety: dimensions.safety,
+      politeness: dimensions.fairness,
+    }, idempotencyKey)
+  }
 
   private authHeaders(): Record<string, string> {
     // 开发联调占位：登录后把当前用户 id 带给后端，Task 5 换 Cookie 会话后删除。

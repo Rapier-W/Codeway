@@ -20,6 +20,44 @@ export class FareService {
     if (!Number.isInteger(Number(dto.actualTotalFareCents)) || Number(dto.actualTotalFareCents) < 0) throw new BadRequestException('FARE_AMOUNT_INVALID');
   }
 
+  /**
+   * 订单详情：只有行程成员可读，避免订单金额和截图元数据外泄。
+   * 返回结构与前端 Order 契约对齐（disputed / settlementLocked / costShare）。
+   */
+  async getOrder(fareOrderId: string, userId: string) {
+    const order = await this.prisma.fareOrder.findUnique({ where: { id: fareOrderId } });
+    if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
+
+    const trip = await this.prisma.trip.findUnique({ where: { id: order.tripId } });
+    if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
+
+    const member = await this.prisma.tripMember.findFirst({ where: { tripId: order.tripId, userId } });
+    if (!member) throw new ForbiddenException('TRIP_MEMBER_REQUIRED');
+
+    const confirmation = await this.prisma.fareOrderConfirmation.findFirst({ where: { fareOrderId, userId } });
+    const disputed = order.status === 'DISPUTED' || order.status === 'MANUAL_REVIEW';
+
+    return {
+      id: order.id,
+      tripId: order.tripId,
+      status: order.status,
+      disputed,
+      // 争议期间结算、已付标记和互评必须同时锁定。
+      settlementLocked: disputed || trip.disputeLocked,
+      totalAmountCents: order.totalAmountCents,
+      screenshotKey: order.screenshotKey,
+      screenshotMimeType: order.screenshotMimeType,
+      screenshotSizeBytes: order.screenshotSizeBytes,
+      createdAt: order.createdAt.toISOString(),
+      confirmedAt: order.confirmedAt ? order.confirmedAt.toISOString() : null,
+      costShare: {
+        mode: 'EQUAL' as const,
+        amountCents: order.totalAmountCents,
+        confirmed: Boolean(confirmation),
+      },
+    };
+  }
+
   private async membership(client: any, tripId: string, userId: string) {
     let member: any = null;
     if (client.tripMember?.findUnique) member = await client.tripMember.findUnique({ where: { tripId_userId: { tripId, userId } } });

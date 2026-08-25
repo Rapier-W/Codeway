@@ -47,6 +47,18 @@ const ERROR_MESSAGES: Record<string, string> = {
   SCREENSHOT_SIZE_INVALID: '截图大小不能超过 10MB',
   PLATE_REQUIRED: '请填写车牌号',
 
+  // 聊天
+  MESSAGE_TEXT_REQUIRED: '请输入消息内容',
+  MESSAGE_TEXT_TOO_LONG: '消息长度不能超过 500 字',
+  MESSAGE_LIMIT_INVALID: '分页参数有误',
+  MESSAGE_CURSOR_INVALID: '分页位置有误',
+  TRIP_CHAT_CLOSED: '行程已归档，聊天已关闭',
+  IDEMPOTENCY_KEY_CONFLICT: '该请求标识已被占用，请重试',
+
+  // 安全与评价
+  SOS_TRIP_REQUIRED: '请在具体行程中发起紧急求助',
+  TRIP_NOT_REVIEWABLE: '当前行程还不能评价',
+
   // 通用
   NOT_FOUND: '内容不存在',
   RATE_LIMITED: '操作过于频繁，请稍后再试',
