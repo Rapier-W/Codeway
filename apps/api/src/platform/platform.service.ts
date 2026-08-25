@@ -1,5 +1,6 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { TripStatus } from '../trips/trip-status';
 
 @Injectable()
 export class PlatformService {
@@ -23,25 +24,31 @@ export class PlatformService {
     return this.prisma.user?.upsert ? this.prisma.user.upsert(data) : this.tx(async tx => tx.user.upsert(data));
   }
 
-  async openRide(tripId: string, userId: string, platform: string) {
+  async openRide(tripId: string, userId: string, platform: string, requestKey = `ride-${tripId}-${userId}`) {
     return this.tx(async tx => {
       const trip = await tx.trip.findUnique({ where: { id: tripId } });
       if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_OPEN_RIDE');
       if (trip.status !== 'FORMED' && trip.status !== 'WAITING_RIDE') throw new ConflictException('TRIP_NOT_READY_FOR_RIDE');
-      const record = await tx.rideRecord.create({ data: { tripId, requestedBy: userId, platform, mode: 'MANUAL_FALLBACK', status: 'WAITING_RIDE' } });
+      const existing = tx.rideRecord?.findUnique ? await tx.rideRecord.findUnique({ where: { requestKey } }) : null;
+      if (existing) { if (existing.tripId !== tripId || existing.requestedBy !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED'); return { ...existing, duplicate: true, launch: { supported: false, copyRouteRequired: true } }; }
+      const record = await tx.rideRecord.create({ data: { tripId, requestedBy: userId, platform, requestKey, mode: 'MANUAL_FALLBACK', status: 'WAITING_RIDE' } });
       await tx.trip.update({ where: { id: tripId }, data: { status: 'WAITING_RIDE' } });
       return { ...record, launch: { supported: false, copyRouteRequired: true } };
     });
   }
-  async updateVehicle(tripId: string, userId: string, data: any) {
+  async updateVehicle(tripId: string, userId: string, data: any, requestKey = `vehicle-${tripId}-${userId}`) {
     return this.tx(async tx => {
       const trip = await tx.trip.findUnique({ where: { id: tripId } });
       if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_UPDATE_VEHICLE');
       if (!data?.plate?.trim()) throw new ConflictException('PLATE_REQUIRED');
-      const vehicle = await tx.vehicleUpdate.create({ data: { tripId, updatedBy: userId, plate: data.plate, model: data.model, color: data.color, platform: data.platform } });
-      await tx.trip.update({ where: { id: tripId }, data: { status: 'RIDE_BOOKED' } });
+      if (!['FORMED', TripStatus.WAITING_RIDE, TripStatus.RIDE_BOOKED].includes(trip.status)) throw new ConflictException('TRIP_NOT_READY_FOR_VEHICLE');
+      const existing = tx.vehicleUpdate?.findUnique ? await tx.vehicleUpdate.findUnique({ where: { requestKey } }) : null;
+      if (existing) { if (existing.tripId !== tripId || existing.updatedBy !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED'); return { ...existing, duplicate: true }; }
+      const vehicle = await tx.vehicleUpdate.create({ data: { tripId, updatedBy: userId, requestKey, plate: data.plate, model: data.model, color: data.color, platform: data.platform } });
+      if (trip.status === TripStatus.FORMED) await tx.trip.update({ where: { id: tripId }, data: { status: TripStatus.WAITING_RIDE } });
+      if (trip.status !== TripStatus.RIDE_BOOKED) await tx.trip.update({ where: { id: tripId }, data: { status: TripStatus.RIDE_BOOKED } });
       return vehicle;
     });
   }
@@ -63,7 +70,13 @@ export class PlatformService {
       return { ...event, duplicate: false };
     });
   }
-  addEmergencyContact(userId: string, data: any) { return this.prisma.emergencyContact.create({ data: { userId, name: data.name, phone: data.phone, active: true } }); }
+  addEmergencyContact(userId: string, data: any, requestKey = `contact-${userId}-${data.phone}`) {
+    return this.tx(async tx => {
+      const existing = tx.emergencyContact?.findUnique ? await tx.emergencyContact.findUnique({ where: { requestKey } }) : null;
+      if (existing) { if (existing.userId !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED'); return { ...existing, duplicate: true }; }
+      return tx.emergencyContact.create({ data: { userId, name: data.name, phone: data.phone, requestKey, active: true } });
+    });
+  }
   createReport(userId: string, data: any) { return this.prisma.report.create({ data: { reporterId: userId, tripId: data.tripId, targetUserId: data.targetUserId, type: data.type, description: data.description, evidenceKey: data.evidenceKey, status: 'OPEN' } }); }
   recordAnalytics(userId: string | undefined, data: any) { return this.prisma.analyticsEvent.create({ data: { userId, eventKey: data.eventKey, eventType: data.eventType, tripId: data.tripId, reasonCodes: data.reasonCodes ?? [], ruleVersion: data.ruleVersion ?? 'mvp-1', payload: data.payload ?? {} } }); }
 }

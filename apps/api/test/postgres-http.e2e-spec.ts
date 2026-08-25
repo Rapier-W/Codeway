@@ -50,6 +50,7 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     expect(published.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: tripId, activeMemberCount: 2, role: 'published' })]));
     const joined = await request(app.getHttpServer()).get('/api/trips/mine?role=joined').set('x-user-id', memberId).expect(200);
     expect(joined.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: tripId, activeMemberCount: 2, role: 'joined' })]));
+    expect(joined.body).not.toEqual(expect.arrayContaining([expect.objectContaining({ role: 'published' })]));
   });
 
   it('enforces member-only chat and client-key retry', async () => {
@@ -57,6 +58,20 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     const retried = await request(app.getHttpServer()).post(`/api/trips/${tripId}/messages`).set('x-user-id', memberId).set('Idempotency-Key', 'pg-chat-key').send({ text: 'E2E 消息' }).expect(201);
     expect(retried.body.id).toBe(first.body.id);
     await request(app.getHttpServer()).get(`/api/trips/${tripId}/messages`).set('x-user-id', outsiderId).expect(403);
+    await request(app.getHttpServer()).post(`/api/trips/${tripId}/messages`).set('x-user-id', memberId).set('Idempotency-Key', 'pg-chat-space').send({ text: '   ' }).expect(400);
+  });
+
+  it('keeps vehicle, ride and emergency contact writes idempotent', async () => {
+    await prisma.trip.update({ where: { id: tripId }, data: { status: 'FORMED' } });
+    const ride1 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId).set('Idempotency-Key', 'pg-ride-key').send({ platform: 'MANUAL' }).expect(201);
+    const ride2 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId).set('Idempotency-Key', 'pg-ride-key').send({ platform: 'MANUAL' }).expect(201);
+    expect(ride2.body.id).toBe(ride1.body.id);
+    const vehicle1 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/vehicle`).set('x-user-id', creatorId).set('Idempotency-Key', 'pg-vehicle-key').send({ plate: '浙A12345' }).expect(201);
+    const vehicle2 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/vehicle`).set('x-user-id', creatorId).set('Idempotency-Key', 'pg-vehicle-key').send({ plate: '浙A12345' }).expect(201);
+    expect(vehicle2.body.id).toBe(vehicle1.body.id);
+    const contact1 = await request(app.getHttpServer()).post('/api/emergency-contacts').set('x-user-id', creatorId).set('Idempotency-Key', 'pg-contact-key').send({ name: '家人', phone: '13900000004' }).expect(201);
+    const contact2 = await request(app.getHttpServer()).post('/api/emergency-contacts').set('x-user-id', creatorId).set('Idempotency-Key', 'pg-contact-key').send({ name: '家人', phone: '13900000004' }).expect(201);
+    expect(contact2.body.id).toBe(contact1.body.id);
   });
 
   it('records SOS only for a member and never persists coordinates', async () => {

@@ -27,13 +27,13 @@ export class PlatformController {
   }
 
   @Post('trips/:id/ride/open')
-  openRide(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any) {
-    return this.service.openRide(id, userId, body.platform);
+  openRide(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any, @IdempotencyKey(false) idempotencyKey?: string) {
+    return this.service.openRide(id, userId, body.platform, idempotencyKey);
   }
 
   @Post('trips/:id/vehicle')
-  vehicle(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any) {
-    return this.service.updateVehicle(id, userId, body);
+  vehicle(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any, @IdempotencyKey(false) idempotencyKey?: string) {
+    return this.service.updateVehicle(id, userId, body, idempotencyKey);
   }
 
   @Post('trips/:id/sos')
@@ -42,8 +42,8 @@ export class PlatformController {
   }
 
   @Post('emergency-contacts')
-  contact(@CurrentUserId() userId: string, @Body() dto: CreateEmergencyContactDto) {
-    return this.service.addEmergencyContact(userId, dto);
+  contact(@CurrentUserId() userId: string, @Body() dto: CreateEmergencyContactDto, @IdempotencyKey(false) idempotencyKey?: string) {
+    return this.service.addEmergencyContact(userId, dto, idempotencyKey);
   }
 
   @Post('reports')

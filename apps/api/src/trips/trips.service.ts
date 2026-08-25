@@ -84,7 +84,7 @@ export class TripsService {
 
   async listMine(userId: string, role: 'joined' | 'published' = 'joined') {
     if (!userId) throw new ForbiddenException('AUTH_REQUIRED');
-    const where = role === 'published' ? { creatorId: userId } : { members: { some: { userId } } };
+    const where = role === 'published' ? { creatorId: userId } : { creatorId: { not: userId }, members: { some: { userId, role: 'MEMBER' } } };
     const trips = await this.prisma.trip.findMany({
       where,
       orderBy: { departTime: 'asc' },

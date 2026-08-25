@@ -119,3 +119,23 @@
 - 前端产出：扩展 `ApiClient`/HTTP Adapter（我的行程、费用确认/异议、车辆、叫车、联系人、聊天游标）；替换 `MyTripsView`、`ChatView`、`OrderView`、`RideView`、`ProfileView`、`ReviewView` 静态/本地状态；统一全量 `TripStatus` 和成员数映射。
 - 验证：API `npm test -- --runInBand`（9 suites/34 tests）、`npm run build`、`npm run test:e2e:postgres`（5 tests）通过；Web `npm test -- --run`（12 suites/24 tests）、`npm run typecheck`、`npm run build` 通过。
 - 风险：评价页当前从订单成员中选择用户 ID；真实会话恢复和正式认证需在后续 Task 5 独立完成。
+
+## WEB-20260825-HTTP-01 审查收敛与最终验收
+
+- 状态：**已完成（审查问题已修复并完成重新验证）**。
+- 审查输入：独立集成审查发现 9 个 Important 问题，覆盖平台写幂等、车辆状态推进、叫车降级、聊天空白消息、我的行程角色过滤、订单权限顺序、聊天分页错误提示、评价入口和测试证据。
+- 已修复：
+  - `RideRecord`、`VehicleUpdate`、`EmergencyContact` 写接口读取 `Idempotency-Key` 并按请求键回读；补充 `VehicleUpdate.requestKey` schema/migration。
+  - 车辆保存仅允许 `FORMED`、`WAITING_RIDE`、`RIDE_BOOKED`，按 `FORMED → WAITING_RIDE → RIDE_BOOKED` 规则推进。
+  - 叫车降级不再默认拨打 110，改为复制真实路线/手动联系引导。
+  - 后端拒绝纯空格聊天消息；`joined` 查询仅返回 `MEMBER` 角色；费用确认先做成员权限校验。
+  - 聊天历史分页失败提供可见错误和重试；订单页补充评价入口。
+  - 新增真实 PostgreSQL HTTP E2E 覆盖角色排除、空白消息、车辆/叫车/联系人幂等。
+- 验证：
+  - `npx prisma migrate status`：正式库 `localhost:5433/tongluxing` up to date。
+  - API `npm run build`；默认测试 `9 suites / 34 tests passed`。
+  - 隔离库 `E2E_DATABASE_URL`：真实 PostgreSQL HTTP E2E `1 suite / 6 tests passed`。
+  - Web `npm run typecheck` passed；在受限沙箱外运行 `npm test -- --run`：`15 files / 29 tests passed`；`npm run build` passed并生成 PWA manifest/service worker。
+  - `git diff --check` passed（仅有 Windows LF/CRLF 提示，无空白错误）。
+- 协同：Codex 统筹集成并复核 diff；Reasonix/独立集成审查提供问题清单；Kimi 只读契约审查确认接口边界。所有结论由 Codex 重新执行命令确认。
+- 剩余边界：真实短信/会话认证、Kodo 上传签名、WebSocket 实时聊天、自动报警通知、正式生产密钥与部署仍留在后续任务；当前 HTTP 联调继续使用开发登录和 `x-user-id` 占位。

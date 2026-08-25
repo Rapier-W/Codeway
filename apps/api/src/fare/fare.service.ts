@@ -107,6 +107,7 @@ export class FareService {
       const order = await client.fareOrder.findUnique({ where: { id: fareOrderId } });
       if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
       const trip = await this.lockTrip(client, order.tripId);
+      await this.membership(client, trip.id, userId);
       if (order.status === 'DISPUTED' || order.status === 'MANUAL_REVIEW') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
       if (order.status === 'CONFIRMED') return { fareOrder: order, duplicate: true, locked: false };
       const submittedAt = order.createdAt ?? order.submittedAt;
@@ -115,7 +116,6 @@ export class FareService {
         await this.audit(client, trip.id, userId, 'fare-confirm-timeout', { fareOrderId: order.id });
         throw new ConflictException('FARE_CONFIRMATION_WINDOW_EXPIRED');
       }
-      await this.membership(client, trip.id, userId);
       const existing = await client.fareOrderConfirmation.findUnique({ where: { fareOrderId_userId: { fareOrderId, userId } } });
       if (existing) return { fareOrder: order, confirmation: existing, duplicate: true, locked: false };
       const confirmation = await client.fareOrderConfirmation.create({ data: { fareOrderId, userId } });

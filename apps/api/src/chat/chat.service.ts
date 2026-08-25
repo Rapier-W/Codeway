@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { TripStatus } from '../trips/trip-status';
 import { ListMessagesDto } from './dto/list-messages.dto';
@@ -47,6 +47,8 @@ export class ChatService {
    */
   async send(tripId: string, userId: string, dto: SendMessageDto, clientKey: string) {
     const { trip } = await this.assertMember(tripId, userId);
+    const text = String(dto.text ?? '').trim();
+    if (!text) throw new BadRequestException('MESSAGE_TEXT_REQUIRED');
 
     if (SEND_BLOCKED_STATUSES.includes(trip.status)) throw new ConflictException('TRIP_CHAT_CLOSED');
 
@@ -60,7 +62,7 @@ export class ChatService {
     let created: any;
     try {
       created = await this.prisma.chatMessage.create({
-        data: { tripId, senderId: userId, kind: 'TEXT', text: dto.text.trim(), clientKey },
+        data: { tripId, senderId: userId, kind: 'TEXT', text, clientKey },
       });
     } catch (error: any) {
       // 两个并发请求都在首次查询后写入时，数据库的唯一索引是最终裁决。
