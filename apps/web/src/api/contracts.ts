@@ -49,7 +49,7 @@ export interface CostShare { mode: 'EQUAL'|'FIXED'|'CUSTOM'; amountCents: number
 export interface Vehicle { plate: string; model?: string; color?: string }
 export interface RideLaunch { launch: { supported: boolean; copyRouteRequired: boolean }; status?: string }
 export interface EmergencyContact { id: string; name: string; phone: string }
-export interface Order { id: string; tripId: string; status?: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare; totalAmountCents?: number }
+export interface Order { id: string; tripId: string; status?: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare; totalAmountCents?: number; members?: Array<{ userId: string; role?: string; memberCount: number }> }
 export interface ReviewInput { fareOrderId: string; targetUserId: string; dimensions: { punctuality:number; communication:number; safety:number; fairness:number }; comment?: string; anonymous: boolean }
 
 export interface ApiClient {

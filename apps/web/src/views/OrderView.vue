@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { createApiClient } from '../api/client'
-import OrderConflictBanner from '../components/OrderConflictBanner.vue'
-import type { Order } from '../api/contracts'
-const route = useRoute()
-const order = ref<Order | null>(null)
-const mode = ref<'EQUAL'|'FIXED'|'CUSTOM'>('EQUAL')
-const amount = ref('')
-const client = createApiClient()
-const valid = computed(() => mode.value === 'EQUAL' || (amount.value.trim() !== '' && Number.isInteger(Number(amount.value)) && Number(amount.value) > 0))
-onMounted(async () => { order.value = await client.getOrder(String(route.params.id)) })
+import { showToast } from 'vant'
+import { createApiClient } from '../api/client'; import { createIdempotencyKey } from '../api/idempotency'; import OrderConflictBanner from '../components/OrderConflictBanner.vue'; import type { Order } from '../api/contracts'
+const route=useRoute(); const client=createApiClient(); const order=ref<Order|null>(null); const loading=ref(true); const error=ref(''); const actionError=ref(''); const busy=ref(false); const reason=ref(''); const locked=computed(()=>Boolean(order.value?.disputed||order.value?.settlementLocked))
+async function load(){loading.value=true;error.value='';try{order.value=await client.getOrder(String(route.params.id))}catch(caught){error.value=caught instanceof Error?caught.message:'订单加载失败'}finally{loading.value=false}}
+async function confirm(){busy.value=true;actionError.value='';try{await client.confirmFareOrder(String(route.params.id),createIdempotencyKey());showToast('费用已确认');await load()}catch(caught){actionError.value=caught instanceof Error?caught.message:'确认失败'}finally{busy.value=false}}
+async function dispute(){if(!reason.value.trim()){actionError.value='请填写异议原因';return}busy.value=true;actionError.value='';try{await client.disputeFareOrder(String(route.params.id),reason.value.trim(),createIdempotencyKey());showToast('已提交费用异议');await load()}catch(caught){actionError.value=caught instanceof Error?caught.message:'提交异议失败'}finally{busy.value=false}}
+onMounted(load)
 </script>
-<template><main class="page"><div class="eyebrow">订单与费用</div><h1>费用确认</h1><div v-if="order"><OrderConflictBanner :disputed="order.disputed || order.settlementLocked"/><p v-if="order.disputed || order.settlementLocked" class="muted">争议处理中，结算与互评暂时锁定。</p><div class="detail-card"><p>截图仅记录元数据（PNG/JPEG/WebP，≤10MB），不上传原图。</p><label>分摊模式<select v-model="mode"><option value="EQUAL">等额</option><option value="FIXED">固定金额</option><option value="CUSTOM">自定义</option></select></label><label v-if="mode!=='EQUAL'">金额（分）<input v-model="amount" inputmode="numeric" /></label><button class="primary-button" :disabled="order.disputed || order.settlementLocked || !valid">确认分摊</button></div></div><div v-else class="async-state">正在加载订单…</div></main></template>
+<template><main class="page"><div class="eyebrow">订单与费用</div><h1>费用确认</h1><div v-if="loading" class="async-state">正在加载订单…</div><div v-else-if="error" class="async-state state-error" role="alert">{{ error }} <button class="secondary-button" @click="load">重新加载</button></div><div v-else-if="order"><OrderConflictBanner :disputed="locked"/><p v-if="locked" class="muted">争议处理中，结算与互评暂时锁定。</p><div class="detail-card"><p>订单金额：{{ order.totalAmountCents ?? order.costShare.amountCents }} 分</p><p class="muted">分摊模式：{{ order.costShare.mode }} · {{ order.costShare.confirmed ? '你已确认' : '等待确认' }}</p><button class="primary-button" :disabled="busy || locked" @click="confirm">{{ busy ? '处理中…' : '确认分摊' }}</button><label v-if="!locked">费用异议原因<textarea v-model="reason" maxlength="240" placeholder="请说明金额或分摊问题" /></label><button v-if="!locked" class="secondary-button" :disabled="busy" @click="dispute">提交异议</button><p v-if="actionError" class="form-error" role="alert">{{ actionError }}</p><p class="muted">截图仅记录元数据；Kodo 上传签名接入前不在此页面伪造上传。</p></div></div></main></template>
