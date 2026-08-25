@@ -75,7 +75,7 @@
 - 已集成：保留聊天 REST、DTO 和统一错误；恢复创建行程幂等 migration 与并发 P2002 回读；恢复确认响应 Adapter；SOS 改为成员校验、幂等且不持久化坐标；订单详情使用真实 `fareOrderId`；评价改为订单反查行程并校验成员、非自评、目标同程、评分 DTO、争议锁与幂等；聊天 P2002 并发幂等回读；生产环境拒绝 `x-user-id` 身份伪造；费用状态机补 `ORDER_DISPUTED`，统一费用实现，并在全员费用确认后真实推进 `PENDING_SETTLEMENT → SETTLED → PENDING_REVIEW`。
 - 测试资产：新增 `apps/api/test/postgres-http.e2e-spec.ts` 和 `npm run test:e2e:postgres`，覆盖创建、聊天、SOS、订单争议与评价的真实 PostgreSQL HTTP 闭环；只有在明确提供隔离的 `E2E_DATABASE_URL` 后允许执行。
 - 已验证：API `npm run build`；默认测试 `9 suites / 33 tests`；Web `typecheck`、PWA build、`11 files / 20 tests`；`prisma validate`（临时占位连接串）和 `git diff --check`。
-- 阻塞证据：2026-08-25 `Test-NetConnection localhost -Port 5433` 返回 `False`，当前没有可用的隔离 PostgreSQL 测试库或 `E2E_DATABASE_URL`；不得在未知开发/生产库执行迁移和清理。因此真实 migration / HTTP E2E 尚未执行，禁止合并和推送。
+- 阻塞证据：2026-08-25 当前修复分支 `apps/api/.env` 缺失；仅在 `.worktrees/backend-trip-flow/apps/api/.env` 发现 `DATABASE_URL`，其目标 `localhost:5432/tongluxing` 端口可达但 Prisma 客户端认证失败。`npx prisma migrate status` 因 Schema Engine 错误退出，后续只读 Prisma 连接明确报认证失败；未执行 migration。另未提供隔离 `E2E_DATABASE_URL`，不得在未知开发/生产库执行测试清理。因此真实 migration / HTTP E2E 尚未执行，禁止合并和推送。
 - 协作：Reasonix 完成独立高风险审查并发现订单状态机缺口，已纳入修复；Kimi Code CLI 已调用两次，但分别因会话存储权限与 `agent.activity.updated` 生命周期错误退出，未对工作树产生修改。
 
 # Task 3 frontend status
