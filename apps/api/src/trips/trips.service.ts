@@ -77,10 +77,13 @@ export class TripsService {
   }
 
   async join(userId: string, tripId: string, dto: JoinTripDto, idempotencyKey?: string) {
-    const user = await this.requireVerified(userId);
     const count = Number(dto.memberCount);
     if (![1, 2].includes(count)) throw new BadRequestException('MEMBER_COUNT_MUST_BE_1_OR_2');
     return this.prisma.$transaction(async tx => {
+      // Verification must be checked INSIDE the row-locked transaction to close
+      // the TOCTOU window (create() already does this; join() previously did
+      // not, so a user could be verified, then unverified, between check and write).
+      const user = await this.requireVerified(userId, tx);
       if (tx.$queryRaw) await tx.$queryRaw`SELECT id FROM trips WHERE id = ${tripId} FOR UPDATE`;
       const trip = await tx.trip.findUnique({ where: { id: tripId }, include: { members: true } });
       if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
