@@ -4,6 +4,7 @@ import { PlatformModule } from './platform/platform.module';
 import { FareModule } from './fare/fare.module';
 import { AuthModule } from './auth/auth.module';
 import { Public } from './auth/public.decorator';
+import { ChatModule } from './chat/chat.module';
 
 @Controller()
 class HealthController {
@@ -16,6 +17,6 @@ class HealthController {
 
 @Module({
   controllers: [HealthController],
-  imports: [AuthModule, TripsModule, PlatformModule, FareModule],
+  imports: [AuthModule, TripsModule, PlatformModule, FareModule, ChatModule],
 })
 export class AppModule {}

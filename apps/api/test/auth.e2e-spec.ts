@@ -4,6 +4,7 @@ import request from 'supertest';
 import cookieParser from 'cookie-parser';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
+import { configureHttpApp } from '../src/http-app';
 
 describe('Auth API (e2e)', () => {
   let app: INestApplication;
@@ -40,7 +41,7 @@ describe('Auth API (e2e)', () => {
       .overrideProvider(PrismaService)
       .useValue(prismaMock)
       .compile();
-    app = moduleRef.createNestApplication();
+    app = configureHttpApp(moduleRef.createNestApplication());
     app.use(cookieParser());
     await app.init();
   });
@@ -48,7 +49,7 @@ describe('Auth API (e2e)', () => {
   afterEach(async () => { if (app) await app.close(); });
 
   it('sends a verification code (dev mode) and returns 204', async () => {
-    await request(app.getHttpServer()).post('/auth/request-code').send({ phone: '13800000000' }).expect(204);
+    await request(app.getHttpServer()).post('/api/auth/request-code').send({ phone: '13800000000' }).expect(204);
   });
 
   it('verifies the code, returns the user, and sets an HttpOnly cookie', async () => {
@@ -58,7 +59,7 @@ describe('Auth API (e2e)', () => {
     });
 
     const response = await request(app.getHttpServer())
-      .post('/auth/verify-code')
+      .post('/api/auth/verify-code')
       .send({ phone: '13800000000', code: '123456' })
       .expect(201);
 
@@ -71,17 +72,17 @@ describe('Auth API (e2e)', () => {
 
   it('returns 401 for protected routes without authentication', async () => {
     await request(app.getHttpServer())
-      .post('/trips')
+      .post('/api/trips')
       .send({ origin: 'A', destination: 'B', departTime: new Date(Date.now() + 3600000).toISOString(), capacity: 3 })
       .expect(401);
   });
 
   it('allows access to public routes (trip list) without authentication', async () => {
-    await request(app.getHttpServer()).get('/trips').expect(200);
+    await request(app.getHttpServer()).get('/api/trips').expect(200);
   });
 
   it('allows access to public routes (trip detail) without authentication', async () => {
-    await request(app.getHttpServer()).get('/trips/test-id').expect(200);
+    await request(app.getHttpServer()).get('/api/trips/test-id').expect(200);
   });
 
   it('returns 401 when the session cookie maps to an expired session', async () => {
@@ -92,7 +93,7 @@ describe('Auth API (e2e)', () => {
       user: { id: 'u1', phoneVerified: true, nickname: 'x' },
     });
     await request(app.getHttpServer())
-      .post('/trips')
+      .post('/api/trips')
       .set('Cookie', 'tongluxing_session=expired-raw-token')
       .send({ origin: 'A', destination: 'B', departTime: new Date(Date.now() + 3600000).toISOString(), capacity: 3 })
       .expect(401);
@@ -105,7 +106,7 @@ describe('Auth API (e2e)', () => {
     });
 
     const response = await request(app.getHttpServer())
-      .post('/auth/verify-code')
+      .post('/api/auth/verify-code')
       .send({ phone: '13800000000', code: '123456' })
       .expect(201);
 
@@ -119,7 +120,7 @@ describe('Auth API (e2e)', () => {
   it('returns 429 after exceeding the global rate limit', async () => {
     let saw429 = false;
     for (let i = 0; i < 25 && !saw429; i++) {
-      const res = await request(app.getHttpServer()).get('/health');
+      const res = await request(app.getHttpServer()).get('/api/health');
       if (res.status === 429) saw429 = true;
     }
     expect(saw429).toBe(true);

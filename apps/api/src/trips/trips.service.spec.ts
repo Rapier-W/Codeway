@@ -7,7 +7,7 @@ describe('TripsService', () => {
     trip: { create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() },
     tripMember: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn() },
   };
-  const prisma = { user: tx.user, trip: { findMany: jest.fn() }, $transaction: jest.fn((callback: any) => callback(tx)) };
+  const prisma = { user: tx.user, trip: { findMany: jest.fn(), findUnique: jest.fn() }, $transaction: jest.fn((callback: any) => callback(tx)) };
   let service: TripsService;
 
   beforeEach(() => {
@@ -93,13 +93,24 @@ describe('TripsService', () => {
     }));
   });
 
-  it('returns the same trip for a retried create idempotency key', async () => {
+  it('returns the existing trip for a retried create idempotency key', async () => {
     tx.user.findUnique.mockResolvedValue({ id: 'u1', phoneVerified: true });
-    const existing = { id: 't1', creatorId: 'u1', capacity: 3, status: 'RECRUITING', reasonCodes: [] };
+    const existing = { id: 't1', creatorId: 'u1', status: 'RECRUITING', members: [] };
     tx.trip.findUnique.mockResolvedValue(existing);
+
     await expect(service.create('u1', {
       origin: 'A', destination: 'B', departTime: new Date(Date.now() + 3600000).toISOString(), capacity: 3,
-    } as any, 'create-key')).resolves.toEqual(existing);
+    } as any, 'create-key')).resolves.toEqual({ ...existing, reasonCodes: [] });
     expect(tx.trip.create).not.toHaveBeenCalled();
+  });
+
+  it('recovers the winning create after a concurrent unique-key conflict', async () => {
+    tx.user.findUnique.mockResolvedValue({ id: 'u1', phoneVerified: true });
+    tx.trip.findUnique.mockResolvedValue(null);
+    tx.trip.create.mockRejectedValue({ code: 'P2002' });
+    prisma.trip.findUnique.mockResolvedValue({ id: 't1', creatorId: 'u1', members: [] });
+    await expect(service.create('u1', {
+      origin: 'A', destination: 'B', departTime: new Date(Date.now() + 3600000).toISOString(), capacity: 3,
+    } as any, 'create-key')).resolves.toMatchObject({ id: 't1', reasonCodes: [] });
   });
 });
