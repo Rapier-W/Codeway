@@ -44,7 +44,7 @@
 | POST | `/fare-orders/:id/dispute` | 发起费用异议并锁定结算 |
 | POST | `/fare-orders/:id/payment-mark` | 记录已付标记，争议时禁止操作 |
 | POST | `/emergency-contacts` | 保存紧急联系人 |
-| POST | `/trips/:id/reviews` | 行程完成后评价 |
+| POST | `/fare-orders/:id/review` | 以真实订单 ID 评价同程成员 |
 | POST | `/reports` | 举报 |
 | POST | `/analytics/events` | 埋点和推荐决策记录 |
 
@@ -63,3 +63,12 @@
 ```
 
 前端 Adapter 应把 HTTP 状态和服务端错误码转换为统一的 `ApiError`，页面必须提供重试或下一步操作，禁止空白页。
+
+## Web 真实联调补充
+
+| 方法 | 路径 | Web 用途 |
+|---|---|---|
+| GET | `/trips/mine?role=joined|published` | 我的出行两个角色标签 |
+| GET | `/trips/:id/messages?before=&limit=` | 聊天历史游标分页 |
+
+订单详情现在返回 `members` 摘要，评价页从同程成员中选择目标并排除当前用户。车辆、叫车和联系人页面已移除硬编码业务数据；叫车平台不可用时继续使用复制路线与手动拨号降级。费用创建仍等待 Kodo 上传签名，不在前端伪造截图上传成功。

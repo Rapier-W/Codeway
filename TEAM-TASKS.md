@@ -106,6 +106,16 @@
 - 验证：专项测试、typecheck、build 通过；由独立实现代理完成。
 
 ## WEB-20260824-06 集成验收
-- 状态：进行中
-- 当前证据：完整 Vitest 11 suites/20 tests passed；typecheck、生产 build（含 PWA manifest/sw）和 git diff --check 通过。
-- 剩余：页面连通性与聊天/评价反馈细节继续收敛；HTTP 路径仍需以后端 OpenAPI 最终契约对齐。
+- 状态：已完成（本轮联调已收敛）
+- 当前证据：Web Vitest 12 suites/24 tests、typecheck、生产 build（含 PWA manifest/sw）和 git diff --check 通过；API 默认测试 9 suites/34 tests、Nest build 和真实 PostgreSQL HTTP E2E 1 suite/5 tests 通过。
+- 历史静态页面已替换：我的出行、聊天游标、订单确认/异议、车辆保存、手动叫车、紧急联系人和评价目标选择均通过 ApiClient 调用真实 HTTP 契约。
+- 保留边界：真实短信/会话认证、Kodo 签名、WebSocket 和自动报警仍未接入；HTTP 联调继续使用开发登录与 `x-user-id` 占位。
+
+## WEB-20260825-HTTP-01 真实 HTTP 联调
+
+- 状态：已完成
+- 目标：让 Web/PWA 主要页面与 NestJS + PostgreSQL 真实业务接口形成可验证闭环，并更新协同记录。
+- 后端产出：`GET /trips/mine?role=joined|published`，返回角色范围内行程、成员占用人数、订单 ID 和争议锁；订单详情附带同程成员供评价选择。
+- 前端产出：扩展 `ApiClient`/HTTP Adapter（我的行程、费用确认/异议、车辆、叫车、联系人、聊天游标）；替换 `MyTripsView`、`ChatView`、`OrderView`、`RideView`、`ProfileView`、`ReviewView` 静态/本地状态；统一全量 `TripStatus` 和成员数映射。
+- 验证：API `npm test -- --runInBand`（9 suites/34 tests）、`npm run build`、`npm run test:e2e:postgres`（5 tests）通过；Web `npm test -- --run`（12 suites/24 tests）、`npm run typecheck`、`npm run build` 通过。
+- 风险：评价页当前从订单成员中选择用户 ID；真实会话恢复和正式认证需在后续 Task 5 独立完成。

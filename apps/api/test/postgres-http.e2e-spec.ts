@@ -46,6 +46,10 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     expect(retried.body.id).toBe(first.body.id);
     tripId = first.body.id;
     await request(app.getHttpServer()).post(`/api/trips/${tripId}/join`).set('x-user-id', memberId).set('Idempotency-Key', 'pg-join-trip').send({ memberCount: 1 }).expect(201);
+    const published = await request(app.getHttpServer()).get('/api/trips/mine?role=published').set('x-user-id', creatorId).expect(200);
+    expect(published.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: tripId, activeMemberCount: 2, role: 'published' })]));
+    const joined = await request(app.getHttpServer()).get('/api/trips/mine?role=joined').set('x-user-id', memberId).expect(200);
+    expect(joined.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: tripId, activeMemberCount: 2, role: 'joined' })]));
   });
 
   it('enforces member-only chat and client-key retry', async () => {

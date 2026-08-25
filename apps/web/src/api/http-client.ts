@@ -54,9 +54,15 @@ export class HttpApiClient implements ApiClient {
   getOrder(orderId: string) { return this.request<Order>(`/fare-orders/${encodeURIComponent(orderId)}`) }
   confirmOrder(orderId: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/confirm`, {}, crypto.randomUUID()) }
   disputeOrder(orderId: string, reason: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/dispute`, { reason }, crypto.randomUUID()) }
-  updateVehicle(tripId: string, input: Vehicle) { return this.write(`/trips/${encodeURIComponent(tripId)}/vehicle`, input, crypto.randomUUID()) }
-  openRide(tripId: string, platform: string) { return this.write(`/trips/${encodeURIComponent(tripId)}/ride/open`, { platform }, crypto.randomUUID()) }
-  addEmergencyContact(input: EmergencyContact) { return this.write('/emergency-contacts', input, crypto.randomUUID()) }
+  confirmFareOrder(orderId: string, idempotencyKey: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/confirm`, {}, idempotencyKey) }
+  disputeFareOrder(orderId: string, reason: string, idempotencyKey: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/dispute`, { reason }, idempotencyKey) }
+  markPayment(orderId: string, amountCents: number | undefined, idempotencyKey: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/payment-mark`, amountCents === undefined ? {} : { amountCents }, idempotencyKey) }
+  updateVehicleWithKey(tripId: string, input: Vehicle, idempotencyKey: string) { return this.write(`/trips/${encodeURIComponent(tripId)}/vehicle`, input, idempotencyKey) }
+  openRideWithKey(tripId: string, platform: string, idempotencyKey: string) { return this.write(`/trips/${encodeURIComponent(tripId)}/ride/open`, { platform }, idempotencyKey) }
+  addEmergencyContactWithKey(input: EmergencyContact, idempotencyKey: string) { return this.write('/emergency-contacts', input, idempotencyKey) }
+  updateVehicle(tripId: string, input: Vehicle, idempotencyKey?: string) { return this.write(`/trips/${encodeURIComponent(tripId)}/vehicle`, input, idempotencyKey ?? crypto.randomUUID()) }
+  openRide(tripId: string, platform: string, idempotencyKey?: string) { return this.write(`/trips/${encodeURIComponent(tripId)}/ride/open`, { platform }, idempotencyKey ?? crypto.randomUUID()) }
+  addEmergencyContact(input: EmergencyContact, idempotencyKey?: string) { return this.write('/emergency-contacts', input, idempotencyKey ?? crypto.randomUUID()) }
 
   // 评价以真实 fareOrderId 发起，后端会由订单反查行程并校验双方成员关系。
   async submitReview(input: ReviewInput, idempotencyKey: string) {

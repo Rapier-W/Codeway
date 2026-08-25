@@ -30,7 +30,7 @@ export class FareService {
     const order = await this.prisma.fareOrder.findUnique({ where: { id: fareOrderId } });
     if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
 
-    const trip = await this.prisma.trip.findUnique({ where: { id: order.tripId } });
+    const trip = await this.prisma.trip.findUnique({ where: { id: order.tripId }, include: { members: true } });
     if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
 
     const member = await this.prisma.tripMember.findFirst({ where: { tripId: order.tripId, userId } });
@@ -57,6 +57,7 @@ export class FareService {
         amountCents: order.totalAmountCents,
         confirmed: Boolean(confirmation),
       },
+      members: (trip.members ?? []).map((member: any) => ({ userId: member.userId, role: member.role, memberCount: member.memberCount })),
     };
   }
 

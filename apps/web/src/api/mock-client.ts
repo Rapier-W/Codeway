@@ -93,9 +93,15 @@ export class MockApiClient implements ApiClient {
   async getOrder(orderId: string) { return { id: orderId, tripId: 'trip-1', disputed: false, settlementLocked: false, costShare: { mode: 'EQUAL' as const, amountCents: 1200, confirmed: false } } }
   async confirmOrder(_orderId: string) {}
   async disputeOrder(_orderId: string, _reason: string) {}
-  async updateVehicle(_tripId: string, _input: Vehicle) {}
-  async openRide(_tripId: string, _platform: string) {}
-  async addEmergencyContact(_input: EmergencyContact) {}
+  async confirmFareOrder(_orderId: string, _key: string) { return { locked: false, duplicate: false } }
+  async disputeFareOrder(_orderId: string, _reason: string, _key: string) { return { locked: true, duplicate: false } }
+  async markPayment(_orderId: string, _amount: number | undefined, _key: string) { return { locked: false, duplicate: false } }
+  async updateVehicle(_tripId: string, _input: Vehicle, _key?: string) {}
+  async openRide(_tripId: string, _platform: string, _key?: string) {}
+  async addEmergencyContact(_input: EmergencyContact, _key?: string) {}
+  async updateVehicleWithKey(_tripId: string, _input: Vehicle, _key: string) {}
+  async openRideWithKey(_tripId: string, _platform: string, _key: string) {}
+  async addEmergencyContactWithKey(_input: EmergencyContact, _key: string) {}
   async submitReview(_input: import('./contracts').ReviewInput, _idempotencyKey: string) {}
 
   private findTrip(tripId: string) {

@@ -1,4 +1,4 @@
-export type TripStatus = 'RECRUITING' | 'CONFIRMING' | 'FORMED' | 'CANCELLED' | 'EXPIRED'
+export type TripStatus = 'RECRUITING' | 'CONFIRMING' | 'FORMED' | 'WAITING_RIDE' | 'RIDE_BOOKED' | 'PENDING_SETTLEMENT' | 'SETTLED' | 'PENDING_REVIEW' | 'ARCHIVED' | 'ORDER_DISPUTED' | 'CANCELLED' | 'EXPIRED'
 export type JoinRequestStatus = 'PENDING' | 'ACTIVE' | 'REJECTED' | 'RELEASED'
 
 export interface ApiErrorShape {
@@ -46,7 +46,8 @@ export interface ChatMessage { id: string; senderId: string; text: string; creat
 export interface MessagePage { messages: ChatMessage[]; hasMore: boolean; nextCursor: string | null }
 export interface CostShare { mode: 'EQUAL'|'FIXED'|'CUSTOM'; amountCents: number; confirmed: boolean }
 export interface Vehicle { plate: string; model?: string; color?: string }
-export interface Order { id: string; tripId: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare }
+export interface RideLaunch { launch: { supported: boolean; copyRouteRequired: boolean }; status?: string }
+export interface Order { id: string; tripId: string; status?: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare; totalAmountCents?: number; members?: TripMember[] }
 export interface EmergencyContact { id?: string; name: string; phone: string }
 export interface ReviewInput { fareOrderId: string; targetUserId: string; dimensions: { punctuality:number; communication:number; safety:number; fairness:number }; comment?: string; anonymous: boolean }
 
@@ -68,8 +69,14 @@ export interface ApiClient {
   getOrder(orderId: string): Promise<Order>
   confirmOrder(orderId: string): Promise<unknown>
   disputeOrder(orderId: string, reason: string): Promise<unknown>
-  updateVehicle(tripId: string, input: Vehicle): Promise<unknown>
-  openRide(tripId: string, platform: string): Promise<unknown>
-  addEmergencyContact(input: EmergencyContact): Promise<unknown>
+  updateVehicle(tripId: string, input: Vehicle, idempotencyKey?: string): Promise<unknown>
+  openRide(tripId: string, platform: string, idempotencyKey?: string): Promise<unknown>
+  addEmergencyContact(input: EmergencyContact, idempotencyKey?: string): Promise<unknown>
+  confirmFareOrder(orderId: string, idempotencyKey: string): Promise<unknown>
+  disputeFareOrder(orderId: string, reason: string, idempotencyKey: string): Promise<unknown>
+  markPayment(orderId: string, amountCents: number | undefined, idempotencyKey: string): Promise<unknown>
+  updateVehicleWithKey(tripId: string, input: Vehicle, idempotencyKey: string): Promise<unknown>
+  openRideWithKey(tripId: string, platform: string, idempotencyKey: string): Promise<unknown>
+  addEmergencyContactWithKey(input: EmergencyContact, idempotencyKey: string): Promise<unknown>
   submitReview(input: ReviewInput, idempotencyKey: string): Promise<void>
 }
