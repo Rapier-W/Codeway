@@ -84,10 +84,14 @@ export class PlatformService {
   }
   addEmergencyContact(userId: string, data: any) { return this.prisma.emergencyContact.create({ data: { userId, name: data.name, phone: data.phone, active: true } }); }
   async createReview(tripId: string, userId: string, data: any) {
-    const finder = this.prisma.trip?.findUnique ? this.prisma.trip.findUnique.bind(this.prisma.trip) : async (args: any) => this.tx(async tx => tx.trip.findUnique(args));
-    const trip = await finder({ where: { id: tripId }, include: { members: true } });
-    if (!trip || trip.status !== 'PENDING_REVIEW' && trip.status !== 'ARCHIVED') throw new ConflictException('TRIP_NOT_REVIEWABLE');
-    return this.prisma.review.create({ data: { tripId, reviewerId: userId, targetUserId: data.targetUserId, punctuality: data.punctuality, safety: data.safety, politeness: data.politeness, communication: data.communication, comment: data.comment, anonymous: Boolean(data.anonymous) } });
+    return this.tx(async tx => {
+      if (tx.$queryRaw) await tx.$queryRaw`SELECT id FROM trips WHERE id = ${tripId} FOR UPDATE`;
+      const trip = await tx.trip.findUnique({ where: { id: tripId }, include: { members: true } });
+      if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
+      if (trip.disputeLocked) throw new ConflictException('FARE_SETTLEMENT_LOCKED');
+      if (trip.status !== 'PENDING_REVIEW' && trip.status !== 'ARCHIVED') throw new ConflictException('TRIP_NOT_REVIEWABLE');
+      return tx.review.create({ data: { tripId, reviewerId: userId, targetUserId: data.targetUserId, punctuality: data.punctuality, safety: data.safety, politeness: data.politeness, communication: data.communication, comment: data.comment, anonymous: Boolean(data.anonymous) } });
+    });
   }
   createReport(userId: string, data: any) { return this.prisma.report.create({ data: { reporterId: userId, tripId: data.tripId, targetUserId: data.targetUserId, type: data.type, description: data.description, evidenceKey: data.evidenceKey, status: 'OPEN' } }); }
   recordAnalytics(userId: string | undefined, data: any) { return this.prisma.analyticsEvent.create({ data: { userId, eventKey: data.eventKey, eventType: data.eventType, tripId: data.tripId, reasonCodes: data.reasonCodes ?? [], ruleVersion: data.ruleVersion ?? 'mvp-1', payload: data.payload ?? {} } }); }

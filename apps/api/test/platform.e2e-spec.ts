@@ -12,7 +12,6 @@ describe('Platform API (e2e)', () => {
   });
   afterAll(async () => app.close());
   it('exposes auth, ride, fare and SOS routes', async () => {
-    await request(app.getHttpServer()).post('/auth/phone').set('x-user-id', 'u1').send({ phone: '13800000000' }).expect(201);
     await request(app.getHttpServer()).post('/trips/t1/ride/open').set('x-user-id', 'u1').send({ platform: 'GAODE' }).expect(201);
     await request(app.getHttpServer()).post('/trips/t1/sos').set('x-user-id', 'u1').send({ latitude: 0, longitude: 0 }).expect(201);
   });
