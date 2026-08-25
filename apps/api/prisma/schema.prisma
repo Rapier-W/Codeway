@@ -26,6 +26,7 @@ model User {
   createdTrips  Trip[]             @relation("TripCreator")
   memberships   TripMember[]
   confirmations TripConfirmation[]
+  sessions      Session[]
 
   @@map("users")
 }
@@ -268,4 +269,34 @@ model AnalyticsEvent {
   createdAt    DateTime @default(now())
   @@unique([eventKey])
   @@index([tripId])
+}
+
+model SmsCode {
+  id           String    @id @default(uuid())
+  phone        String
+  code         String
+  status       String    @default("PENDING") // PENDING | VERIFIED | EXPIRED
+  requestIp    String?
+  attemptCount Int       @default(0) // 验证尝试次数，超过 5 次作废
+  expiresAt    DateTime // 5 分钟有效期
+  consumedAt   DateTime? // 验证成功时间
+  createdAt    DateTime  @default(now())
+
+  @@index([phone])
+  @@index([phone, status])
+  @@map("sms_codes")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique // 256-bit 随机令牌
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime // 7 天过期
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
 }
