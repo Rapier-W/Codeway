@@ -12,8 +12,8 @@ export class TripsController {
   constructor(private readonly trips: TripsService, private readonly confirmations: ConfirmationService) {}
 
   @Post()
-  create(@CurrentUserId() userId: string, @Body() dto: CreateTripDto) {
-    return this.trips.create(userId, dto);
+  create(@CurrentUserId() userId: string, @Body() dto: CreateTripDto, @IdempotencyKey(false) idempotencyKey?: string) {
+    return this.trips.create(userId, dto, idempotencyKey);
   }
 
   // 列表和详情允许匿名浏览。

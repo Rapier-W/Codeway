@@ -14,7 +14,8 @@ import { createParamDecorator, ExecutionContext, ForbiddenException } from '@nes
  */
 export const CurrentUserId = createParamDecorator((required: boolean | undefined, ctx: ExecutionContext) => {
   const request = ctx.switchToHttp().getRequest();
-  const raw = request.user?.id ?? request.headers?.['x-user-id'];
+  // x-user-id 仅允许本地联调；生产必须由会话/Token guard 注入 req.user。
+  const raw = request.user?.id ?? (process.env.NODE_ENV === 'production' ? undefined : request.headers?.['x-user-id']);
   const value = Array.isArray(raw) ? raw[0] : raw;
   const userId = typeof value === 'string' ? value.trim() : '';
 

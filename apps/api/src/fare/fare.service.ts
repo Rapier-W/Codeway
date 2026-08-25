@@ -3,6 +3,8 @@ import { PrismaService } from '../prisma.service';
 import { CreateFareOrderDto } from './dto/create-fare-order.dto';
 import { DisputeFareDto } from './dto/dispute-fare.dto';
 import { PaymentMarkDto } from './dto/payment-mark.dto';
+import { CreateReviewDto } from './dto/create-review.dto';
+import { canTransition, TripStatus } from '../trips/trip-status';
 
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 const CONFIRMATION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -80,6 +82,7 @@ export class FareService {
       const trip = await this.lockTrip(client, tripId);
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_SUBMIT_ORDER');
       if (trip.disputeLocked || trip.status === 'ORDER_DISPUTED') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
+      if (![TripStatus.RIDE_BOOKED, TripStatus.PENDING_SETTLEMENT].includes(trip.status as any)) throw new ConflictException('TRIP_NOT_READY_FOR_SETTLEMENT');
       const data = { tripId, submittedBy: userId, screenshotKey: dto.screenshotKey.trim(), screenshotMimeType: dto.mimeType.toLowerCase(), screenshotSizeBytes: Number(dto.sizeBytes), totalAmountCents: Number(dto.actualTotalFareCents), status: 'PENDING_CONFIRMATION', confirmedAt: null };
       const existing = await client.fareOrder.findUnique({ where: { tripId } });
       let order: any;
@@ -89,6 +92,10 @@ export class FareService {
         if (client.paymentMark?.deleteMany) await client.paymentMark.deleteMany({ where: { fareOrderId: existing.id } });
         order = await client.fareOrder.update({ where: { id: existing.id }, data });
       } else order = await client.fareOrder.create({ data });
+      if (trip.status === TripStatus.RIDE_BOOKED) {
+        if (!canTransition(trip.status, TripStatus.PENDING_SETTLEMENT)) throw new ConflictException('INVALID_TRIP_TRANSITION');
+        await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_SETTLEMENT, disputeLocked: false, version: { increment: 1 } } });
+      }
       await this.audit(client, tripId, userId, 'fare-order-submit', { fareOrderId: order.id, totalAmountCents: order.totalAmountCents });
       return { fareOrder: order, overwritten: Boolean(existing), locked: false };
     });
@@ -114,6 +121,14 @@ export class FareService {
       const confirmedCount = await client.fareOrderConfirmation.count({ where: { fareOrderId } });
       if (confirmedCount >= (trip.members ?? []).length) {
         const confirmed = await client.fareOrder.update({ where: { id: fareOrderId }, data: { status: 'CONFIRMED', confirmedAt: new Date() } });
+        // 费用全员确认是结算状态机的唯一推进点：先完成结算，再开放评价窗口。
+        if (trip.status === TripStatus.PENDING_SETTLEMENT) {
+          if (!canTransition(trip.status, TripStatus.SETTLED) || !canTransition(TripStatus.SETTLED, TripStatus.PENDING_REVIEW)) {
+            throw new ConflictException('INVALID_TRIP_TRANSITION');
+          }
+          await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.SETTLED, version: { increment: 1 } } });
+          await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_REVIEW, version: { increment: 1 } } });
+        }
         await this.audit(client, trip.id, userId, 'fare-order-confirmed', { fareOrderId });
         return { fareOrder: confirmed, confirmation, duplicate: false, locked: false };
       }
@@ -159,6 +174,33 @@ export class FareService {
       const mark = await client.paymentMark.upsert({ where: { fareOrderId_userId: { fareOrderId, userId } }, create: { fareOrderId, userId, amountCents: amount }, update: { amountCents: amount, status: 'MARKED', markedAt: new Date() } });
       await this.audit(client, trip.id, userId, 'payment-mark', { fareOrderId, paymentMarkId: mark.id });
       return { paymentMark: mark, locked: false, duplicate: false };
+    });
+  }
+
+  /**
+   * 评价必须由订单反查行程，确保前端 URL 参数无法被误当成 tripId。
+   * 争议、未到评价阶段、非成员、自评和跨行程目标均不可写入。
+   */
+  async createReview(fareOrderId: string, userId: string, dto: CreateReviewDto, idempotencyKey: string) {
+    return this.tx(async client => {
+      const order = await client.fareOrder.findUnique({ where: { id: fareOrderId } });
+      if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
+      const trip = await this.lockTrip(client, order.tripId);
+      if (trip.disputeLocked || order.status === 'DISPUTED' || order.status === 'MANUAL_REVIEW') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
+      if (![ 'PENDING_REVIEW', 'ARCHIVED' ].includes(trip.status)) throw new ConflictException('TRIP_NOT_REVIEWABLE');
+      await this.membership(client, trip.id, userId);
+      if (dto.targetUserId === userId) throw new ForbiddenException('REVIEW_SELF_FORBIDDEN');
+      await this.membership(client, trip.id, dto.targetUserId);
+      const duplicateKey = await client.review.findUnique({ where: { requestKey: idempotencyKey } });
+      if (duplicateKey) {
+        if (duplicateKey.tripId !== trip.id || duplicateKey.reviewerId !== userId || duplicateKey.targetUserId !== dto.targetUserId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+        return { review: duplicateKey, duplicate: true };
+      }
+      const duplicateReview = await client.review.findUnique({ where: { tripId_reviewerId_targetUserId: { tripId: trip.id, reviewerId: userId, targetUserId: dto.targetUserId } } });
+      if (duplicateReview) throw new ConflictException('REVIEW_ALREADY_SUBMITTED');
+      const review = await client.review.create({ data: { tripId: trip.id, reviewerId: userId, targetUserId: dto.targetUserId, punctuality: dto.punctuality, safety: dto.safety, politeness: dto.politeness, communication: dto.communication, comment: dto.comment?.trim() || null, anonymous: Boolean(dto.anonymous), requestKey: idempotencyKey } });
+      await this.audit(client, trip.id, userId, 'review-create', { reviewId: review.id, fareOrderId });
+      return { review, duplicate: false };
     });
   }
 

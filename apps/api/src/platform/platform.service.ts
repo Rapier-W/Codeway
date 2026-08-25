@@ -45,41 +45,25 @@ export class PlatformService {
       return vehicle;
     });
   }
-  async submitFareOrder(tripId: string, userId: string, data: any) {
+  async triggerSos(tripId: string, userId: string, input: { note?: string }, idempotencyKey: string) {
     return this.tx(async tx => {
       const trip = await tx.trip.findUnique({ where: { id: tripId } });
-      if (!trip || trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_SUBMIT_FARE');
-      if (!Number.isInteger(data.totalAmountCents) || data.totalAmountCents < 0) throw new ConflictException('INVALID_AMOUNT');
-      const order = await tx.fareOrder.create({ data: { tripId, submittedBy: userId, totalAmountCents: data.totalAmountCents, screenshotKey: data.screenshotKey, status: 'PENDING_CONFIRMATION' } });
-      await tx.trip.update({ where: { id: tripId }, data: { status: 'PENDING_SETTLEMENT', disputeLocked: false } });
-      return order;
-    });
-  }
-  async disputeFare(orderId: string, userId: string, reason: string) {
-    return this.tx(async tx => {
-      const order = await tx.fareOrder.findUnique({ where: { id: orderId } });
-      if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
-      const dispute = await tx.fareDispute.create({ data: { fareOrderId: orderId, raisedBy: userId, reason, status: 'OPEN' } });
-      await tx.fareOrder.update({ where: { id: orderId }, data: { status: 'DISPUTED' } });
-      await tx.trip.update({ where: { id: order.tripId }, data: { disputeLocked: true, status: 'PENDING_SETTLEMENT' } });
-      return dispute;
-    });
-  }
-  async triggerSos(tripId: string, userId: string, location: any) {
-    return this.tx(async tx => {
-      const event = await tx.sosEvent.create({ data: { tripId, userId, latitude: location?.latitude ?? null, longitude: location?.longitude ?? null, status: 'RECORDED' } });
+      if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
+      const member = await tx.tripMember.findUnique({ where: { tripId_userId: { tripId, userId } } });
+      if (!member) throw new ForbiddenException('TRIP_MEMBER_REQUIRED');
+      const previous = await tx.sosEvent.findUnique({ where: { requestKey: idempotencyKey } });
+      if (previous) {
+        if (previous.tripId !== tripId || previous.userId !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+        return { ...previous, duplicate: true };
+      }
+      // 精确经纬度不落库：MVP 仅保留事件和通知意图。
+      const event = await tx.sosEvent.create({ data: { tripId, userId, requestKey: idempotencyKey, status: 'RECORDED', note: input?.note?.trim() || null } });
       const contacts = await tx.emergencyContact.findMany({ where: { userId, active: true } });
       await tx.notificationEvent.create({ data: { type: 'SOS', tripId, userId, payload: { eventId: event.id, contacts: contacts.map((c: any) => c.id) }, status: 'PENDING' } });
-      return event;
+      return { ...event, duplicate: false };
     });
   }
   addEmergencyContact(userId: string, data: any) { return this.prisma.emergencyContact.create({ data: { userId, name: data.name, phone: data.phone, active: true } }); }
-  async createReview(tripId: string, userId: string, data: any) {
-    const finder = this.prisma.trip?.findUnique ? this.prisma.trip.findUnique.bind(this.prisma.trip) : async (args: any) => this.tx(async tx => tx.trip.findUnique(args));
-    const trip = await finder({ where: { id: tripId }, include: { members: true } });
-    if (!trip || trip.status !== 'PENDING_REVIEW' && trip.status !== 'ARCHIVED') throw new ConflictException('TRIP_NOT_REVIEWABLE');
-    return this.prisma.review.create({ data: { tripId, reviewerId: userId, targetUserId: data.targetUserId, punctuality: data.punctuality, safety: data.safety, politeness: data.politeness, communication: data.communication, comment: data.comment, anonymous: Boolean(data.anonymous) } });
-  }
   createReport(userId: string, data: any) { return this.prisma.report.create({ data: { reporterId: userId, tripId: data.tripId, targetUserId: data.targetUserId, type: data.type, description: data.description, evidenceKey: data.evidenceKey, status: 'OPEN' } }); }
   recordAnalytics(userId: string | undefined, data: any) { return this.prisma.analyticsEvent.create({ data: { userId, eventKey: data.eventKey, eventType: data.eventType, tripId: data.tripId, reasonCodes: data.reasonCodes ?? [], ruleVersion: data.ruleVersion ?? 'mvp-1', payload: data.payload ?? {} } }); }
 }

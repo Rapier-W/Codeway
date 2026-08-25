@@ -57,9 +57,20 @@ export class ChatService {
       return { ...this.toDto(existing), duplicate: true };
     }
 
-    const created = await this.prisma.chatMessage.create({
-      data: { tripId, senderId: userId, kind: 'TEXT', text: dto.text.trim(), clientKey },
-    });
+    let created: any;
+    try {
+      created = await this.prisma.chatMessage.create({
+        data: { tripId, senderId: userId, kind: 'TEXT', text: dto.text.trim(), clientKey },
+      });
+    } catch (error: any) {
+      // 两个并发请求都在首次查询后写入时，数据库的唯一索引是最终裁决。
+      // 将 P2002 转回首次消息，避免把可恢复的重试变成 500。
+      if (error?.code !== 'P2002') throw error;
+      const winner = await this.prisma.chatMessage.findFirst({ where: { tripId, clientKey } });
+      if (!winner) throw error;
+      if (winner.senderId !== userId) throw new ConflictException('IDEMPOTENCY_KEY_CONFLICT');
+      return { ...this.toDto(winner), duplicate: true };
+    }
 
     return { ...this.toDto(created), duplicate: false };
   }

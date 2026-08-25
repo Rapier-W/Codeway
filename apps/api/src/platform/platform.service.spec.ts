@@ -1,10 +1,11 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { PlatformService } from './platform.service';
 
 describe('PlatformService', () => {
   const tx: any = {
     user: { upsert: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     trip: { findUnique: jest.fn(), update: jest.fn() },
+    tripMember: { findUnique: jest.fn() },
     fareOrder: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     fareDispute: { create: jest.fn() },
     rideRecord: { create: jest.fn(), findUnique: jest.fn() },
@@ -33,27 +34,23 @@ describe('PlatformService', () => {
     await expect(service.updateVehicle('t1', 'u1', { plate: '粤A12345', platform: 'GAODE' })).resolves.toMatchObject({ plate: '粤A12345' });
   });
 
-  it('locks settlement and payment while a fare dispute is open', async () => {
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'PENDING_SETTLEMENT', creatorId: 'u1', disputeLocked: false });
-    tx.fareOrder.create.mockResolvedValue({ id: 'o1', totalAmountCents: 1200, status: 'PENDING_CONFIRMATION' });
-    await service.submitFareOrder('t1', 'u1', { totalAmountCents: 1200, screenshotKey: 'orders/o1.png' });
-    tx.fareOrder.findUnique.mockResolvedValue({ id: 'o1', tripId: 't1', status: 'PENDING_CONFIRMATION' });
-    tx.fareDispute.create.mockResolvedValue({ id: 'd1', status: 'OPEN' });
-    tx.trip.update.mockResolvedValue({ id: 't1', disputeLocked: true });
-    await expect(service.disputeFare('o1', 'u2', '金额不符')).resolves.toMatchObject({ status: 'OPEN' });
-    expect(tx.trip.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ disputeLocked: true }) }));
-  });
 
   it('records SOS without requiring location permission and writes notification event', async () => {
+    tx.trip.findUnique.mockResolvedValue({ id: 't1' });
+    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1' });
+    tx.sosEvent.findUnique = jest.fn().mockResolvedValue(null);
     tx.emergencyContact.findMany.mockResolvedValue([{ id: 'c1', phone: '13900000000' }]);
     tx.sosEvent.create.mockResolvedValue({ id: 's1', status: 'RECORDED' });
     tx.notificationEvent.create.mockResolvedValue({ id: 'n1', status: 'PENDING' });
-    await expect(service.triggerSos('t1', 'u1', null)).resolves.toMatchObject({ id: 's1' });
+    await expect(service.triggerSos('t1', 'u1', {}, 'sos-key')).resolves.toMatchObject({ id: 's1' });
+    expect(tx.sosEvent.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ requestKey: 'sos-key', note: null }) }));
     expect(tx.notificationEvent.create).toHaveBeenCalled();
   });
 
-  it('rejects review before trip is finished', async () => {
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'FORMED', members: [{ userId: 'u1' }, { userId: 'u2' }] });
-    await expect(service.createReview('t1', 'u1', { targetUserId: 'u2', punctuality: 5, safety: 5, politeness: 5, communication: 5 })).rejects.toBeInstanceOf(ConflictException);
+  it('rejects SOS from a user who is not a trip member', async () => {
+    tx.trip.findUnique.mockResolvedValue({ id: 't1' });
+    tx.tripMember.findUnique.mockResolvedValue(null);
+    await expect(service.triggerSos('t1', 'u3', {}, 'sos-key')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(tx.sosEvent.create).not.toHaveBeenCalled();
   });
 });

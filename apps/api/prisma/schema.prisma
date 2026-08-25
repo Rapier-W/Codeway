@@ -44,6 +44,7 @@ model Trip {
   status      String   @default("RECRUITING") // 鎷涘嫙涓?鈫?鍙屽悜纭涓?鈫?宸叉垚鍥?鈫?寰呭彨杞?鈫?宸插彨杞?鈫?琛岀▼缁撴潫寰呯粨绠?鈫?缁撶畻瀹屾垚 鈫?寰呰瘎浠?鈫?宸插綊妗?
   version     Int      @default(0) // 涔愯閿侊紝鐘舵€佸彉鏇村繀椤绘牎楠?
   disputeLocked Boolean @default(false)
+  createRequestKey String? @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -210,6 +211,8 @@ model SosEvent {
   userId    String
   latitude  Float?
   longitude Float?
+  note      String?
+  requestKey String? @unique
   status    String   @default("RECORDED")
   createdAt DateTime @default(now())
   trip      Trip     @relation(fields: [tripId], references: [id])
@@ -239,6 +242,7 @@ model Review {
   communication Int
   comment       String?
   anonymous     Boolean  @default(false)
+  requestKey    String?  @unique
   createdAt     DateTime @default(now())
   @@unique([tripId, reviewerId, targetUserId])
 }

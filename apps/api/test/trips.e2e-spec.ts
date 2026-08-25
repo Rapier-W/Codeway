@@ -3,6 +3,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
+import { configureHttpApp } from '../src/http-app';
 
 describe('Trips API (e2e)', () => {
   let app: INestApplication;
@@ -11,7 +12,7 @@ describe('Trips API (e2e)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService).useValue(prisma).compile();
-    app = moduleRef.createNestApplication();
+    app = configureHttpApp(moduleRef.createNestApplication());
     await app.init();
   });
 
@@ -23,10 +24,10 @@ describe('Trips API (e2e)', () => {
       trip: { create: jest.fn().mockResolvedValue({ id: 't1', capacity: 3, status: 'RECRUITING' }) },
       tripMember: { create: jest.fn().mockResolvedValue({ id: 'm1', memberCount: 1 }) },
     }));
-    await request(app.getHttpServer()).post('/trips').set('x-user-id', 'u1').send({
+    await request(app.getHttpServer()).post('/api/trips').set('x-user-id', 'u1').send({
       origin: 'A', destination: 'B', departTime: new Date(Date.now() + 3600000).toISOString(), capacity: 3,
     }).expect(201);
-    await request(app.getHttpServer()).post('/trips').set('x-user-id', 'u1').send({
+    await request(app.getHttpServer()).post('/api/trips').set('x-user-id', 'u1').send({
       origin: 'A', destination: 'B', departTime: new Date(Date.now() + 3600000).toISOString(), capacity: 5,
     }).expect(400);
   });

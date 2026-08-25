@@ -1,6 +1,9 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { CurrentUserId } from '../common/current-user.decorator';
+import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { PlatformService } from './platform.service';
+import { CreateSosEventDto } from './dto/create-sos-event.dto';
+import { CreateEmergencyContactDto } from './dto/create-emergency-contact.dto';
 
 @Controller()
 export class PlatformController {
@@ -34,18 +37,13 @@ export class PlatformController {
   }
 
   @Post('trips/:id/sos')
-  sos(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any) {
-    return this.service.triggerSos(id, userId, body);
+  sos(@Param('id') id: string, @CurrentUserId() userId: string, @Body() dto: CreateSosEventDto, @IdempotencyKey() idempotencyKey: string) {
+    return this.service.triggerSos(id, userId, dto, idempotencyKey);
   }
 
   @Post('emergency-contacts')
-  contact(@CurrentUserId() userId: string, @Body() body: any) {
-    return this.service.addEmergencyContact(userId, body);
-  }
-
-  @Post('trips/:id/reviews')
-  review(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any) {
-    return this.service.createReview(id, userId, body);
+  contact(@CurrentUserId() userId: string, @Body() dto: CreateEmergencyContactDto) {
+    return this.service.addEmergencyContact(userId, dto);
   }
 
   @Post('reports')

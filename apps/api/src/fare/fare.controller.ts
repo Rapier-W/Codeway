@@ -3,6 +3,8 @@ import { CurrentUserId } from '../common/current-user.decorator';
 import { CreateFareOrderDto } from './dto/create-fare-order.dto';
 import { DisputeFareDto } from './dto/dispute-fare.dto';
 import { PaymentMarkDto } from './dto/payment-mark.dto';
+import { CreateReviewDto } from './dto/create-review.dto';
+import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { FareService } from './fare.service';
 
 @Controller()
@@ -33,5 +35,11 @@ export class FareController {
   @Post('fare-orders/:id/payment-mark')
   paymentMark(@Param('id') id: string, @CurrentUserId() userId: string, @Body() dto: PaymentMarkDto) {
     return this.fare.paymentMark(id, userId, dto || {});
+  }
+
+  /** 评价以订单 ID 为边界，服务端反查所属行程，杜绝把 tripId/orderId 混用。 */
+  @Post('fare-orders/:id/review')
+  review(@Param('id') id: string, @CurrentUserId() userId: string, @Body() dto: CreateReviewDto, @IdempotencyKey() idempotencyKey: string) {
+    return this.fare.createReview(id, userId, dto, idempotencyKey);
   }
 }

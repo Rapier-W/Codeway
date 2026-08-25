@@ -26,8 +26,8 @@ export class HttpApiClient implements ApiClient {
     return normalizeTrip(await this.write<unknown>('/trips', { ...rest, departTime: departureAt }, idempotencyKey))
   }
   joinTrip(tripId: string, input: JoinTripInput, idempotencyKey: string) { return this.write<JoinRequest>(`/trips/${tripId}/join`, input, idempotencyKey) }
-  confirmTrip(tripId: string, idempotencyKey: string) { return this.write<Trip>(`/trips/${tripId}/confirmations`, {}, idempotencyKey) }
-  withdrawConfirmation(tripId: string, confirmationId: string, idempotencyKey: string) { return this.write<Trip>(`/trips/${tripId}/confirmations/${confirmationId}/withdraw`, {}, idempotencyKey) }
+  async confirmTrip(tripId: string, idempotencyKey: string) { return normalizeTripState(await this.write<any>(`/trips/${tripId}/confirmations`, {}, idempotencyKey)) }
+  async withdrawConfirmation(tripId: string, confirmationId: string, idempotencyKey: string) { return normalizeTripState(await this.write<any>(`/trips/${tripId}/confirmations/${confirmationId}/withdraw`, {}, idempotencyKey)) }
   // 后端 SOS 挂在行程下：POST /trips/:id/sos。tripId 缺失时无法上报，抛出可读错误而不是打 404。
   async createSosEvent(input: SosInput, idempotencyKey: string) {
     if (!input.tripId) throw new ApiError('SOS_TRIP_REQUIRED', resolveErrorMessage('SOS_TRIP_REQUIRED'), 400)
@@ -48,11 +48,10 @@ export class HttpApiClient implements ApiClient {
   // 后端订单路径是 /fare-orders/:id。
   getOrder(orderId: string) { return this.request<Order>(`/fare-orders/${encodeURIComponent(orderId)}`) }
 
-  // 后端评价挂在行程下：POST /trips/:id/reviews，且字段名与前端契约不同。
-  // 前端 ReviewInput.dimensions 用 fairness，后端 Review 模型用 politeness；tripId 由调用方通过 orderId 位置传入。
+  // 评价以真实 fareOrderId 发起，后端会由订单反查行程并校验双方成员关系。
   async submitReview(input: ReviewInput, idempotencyKey: string) {
-    const { orderId, dimensions, ...rest } = input
-    await this.write<void>(`/trips/${encodeURIComponent(orderId)}/reviews`, {
+    const { fareOrderId, dimensions, ...rest } = input
+    await this.write<void>(`/fare-orders/${encodeURIComponent(fareOrderId)}/review`, {
       ...rest,
       punctuality: dimensions.punctuality,
       communication: dimensions.communication,
@@ -90,9 +89,15 @@ export class HttpApiClient implements ApiClient {
   }
 }
 
+function normalizeTripState(value: any): Trip {
+  const trip = value.trip ?? value
+  return normalizeTrip({ ...trip, status: value.tripStatus ?? trip.status, confirmationId: value.confirmation?.id, retractUntil: value.retractUntil ?? value.confirmation?.retractUntil, confirmedCount: value.confirmedCount ?? value.confirmationCount })
+}
+
 function normalizeTrip(value: unknown): Trip {
   const raw = value as Record<string, unknown>
   const reasons = Array.isArray(raw.recommendationReasons) ? raw.recommendationReasons : Array.isArray(raw.reasonCodes) ? raw.reasonCodes : []
   const reasonMap: Record<string, Trip['recommendationReasons'][number]> = { OPEN_SLOT: 'AVAILABLE', TIME_CLOSE: 'TIME_CLOSE', RELIABLE: 'RELIABLE', VERIFIED: 'VERIFIED', AVAILABLE: 'AVAILABLE' }
-  return { ...raw, departureAt: String(raw.departureAt ?? raw.departTime ?? ''), activeMemberCount: Number(raw.activeMemberCount ?? raw.memberCount ?? 0), recommendationReasons: reasons.map((reason) => reasonMap[String(reason)]).filter(Boolean) } as Trip
+  const fareOrders = Array.isArray(raw.fareOrders) ? raw.fareOrders as Array<Record<string, unknown>> : []
+  return { ...raw, departureAt: String(raw.departureAt ?? raw.departTime ?? ''), activeMemberCount: Number(raw.activeMemberCount ?? raw.memberCount ?? 0), fareOrderId: raw.fareOrderId ?? fareOrders[0]?.id, recommendationReasons: reasons.map((reason) => reasonMap[String(reason)]).filter(Boolean) } as Trip
 }
