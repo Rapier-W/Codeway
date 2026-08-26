@@ -138,4 +138,16 @@ describe('FareService', () => {
     await expect(service.createScreenshotUpload('t1', 'u1', { mimeType: 'image/png', sizeBytes: 200 }, 'intent-7'))
       .rejects.toBeInstanceOf(ConflictException);
   });
+
+  it('recovers a concurrent identical request key but rejects a mismatched winner', async () => {
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', creatorId: 'u1', status: 'RIDE_BOOKED', disputeLocked: false, members: [] });
+    tx.objectUpload.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'raced-upload', tripId: 't1', ownerId: 'u1', allowedMimeType: 'image/png', declaredSizeBytes: 100,
+      objectKey: 'fare-screenshots/u1/t1/raced.png', maxSizeBytes: 10 * 1024 * 1024,
+      expiresAt: new Date(Date.now() + 60_000), claimedAt: null,
+    });
+    tx.objectUpload.create.mockRejectedValueOnce({ code: 'P2002' });
+    await expect(service.createScreenshotUpload('t1', 'u1', { mimeType: 'image/png', sizeBytes: 100 }, 'race-key'))
+      .resolves.toMatchObject({ uploadId: 'raced-upload' });
+  });
 });

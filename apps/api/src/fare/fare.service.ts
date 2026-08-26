@@ -121,20 +121,26 @@ export class FareService {
         upload = existing;
       } else {
         const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.slice('image/'.length);
-        upload = await client.objectUpload.create({
-          data: {
-            purpose: 'FARE_SCREENSHOT',
-            provider: 'KODO',
-            objectKey: `fare-screenshots/${userId}/${tripId}/${randomUUID()}.${extension}`,
-            tripId,
-            ownerId: userId,
-            allowedMimeType: mimeType,
-            declaredSizeBytes: sizeBytes,
-            maxSizeBytes: MAX_SCREENSHOT_BYTES,
-            requestKey: idempotencyKey,
-            expiresAt: new Date(now.getTime() + 10 * 60 * 1000),
-          },
-        });
+        try {
+          upload = await client.objectUpload.create({
+            data: {
+              purpose: 'FARE_SCREENSHOT', provider: 'KODO',
+              objectKey: `fare-screenshots/${userId}/${tripId}/${randomUUID()}.${extension}`,
+              tripId, ownerId: userId, allowedMimeType: mimeType,
+              declaredSizeBytes: sizeBytes, maxSizeBytes: MAX_SCREENSHOT_BYTES,
+              requestKey: idempotencyKey, expiresAt: new Date(now.getTime() + 10 * 60 * 1000),
+            },
+          });
+        } catch (error: any) {
+          if (error?.code !== 'P2002') throw error;
+          const raced = await client.objectUpload.findUnique({ where: { requestKey: idempotencyKey } });
+          if (!raced || raced.tripId !== tripId || raced.ownerId !== userId || raced.allowedMimeType !== mimeType || raced.declaredSizeBytes !== sizeBytes) {
+            throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+          }
+          if (raced.claimedAt) throw new ConflictException('SCREENSHOT_UPLOAD_ALREADY_CLAIMED');
+          if (new Date(raced.expiresAt) <= now) throw new ConflictException('SCREENSHOT_UPLOAD_EXPIRED');
+          upload = raced;
+        }
       }
 
       const grant = await this.storage.createUploadGrant({
