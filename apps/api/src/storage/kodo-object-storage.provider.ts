@@ -13,6 +13,7 @@ export class KodoObjectStorageProvider implements ObjectStorageProvider {
   }
 
   async createUploadGrant(input: { key: string; mimeType: string; maxSizeBytes: number; expiresAt: Date }): Promise<UploadGrant> {
+    if (input.expiresAt <= new Date()) throw new Error('UPLOAD_GRANT_EXPIRED');
     const seconds = Math.max(1, Math.ceil((input.expiresAt.getTime() - Date.now()) / 1000));
     const uploadToken = new qiniu.rs.PutPolicy({ scope: `${this.config.bucket}:${input.key}`, expires: seconds, insertOnly: 1, mimeLimit: input.mimeType, fsizeLimit: input.maxSizeBytes }).uploadToken(this.mac);
     return { objectKey: input.key, uploadUrl: this.config.uploadHost, uploadToken, expiresAt: input.expiresAt };

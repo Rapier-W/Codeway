@@ -75,4 +75,26 @@ describe('storage provider configuration', () => {
     await expect(missingDownloadHost.createPrivateDownloadUrl('fare-screenshots/u1/t1/a.png', 60)).rejects.toThrow('STORAGE_NOT_CONFIGURED');
     expect(createObjectStorageProvider({ ...completeConfig, NODE_ENV: 'production' })).toBeInstanceOf(KodoObjectStorageProvider);
   });
+
+  it('rejects an expired Kodo grant instead of issuing a token', async () => {
+    const provider = new KodoObjectStorageProvider({
+      bucket: 'private-bucket', uploadHost: 'https://upload.example.test', downloadHost: 'https://download.example.test',
+      accessKey: 'access-key', secretKey: 'secret-key',
+    });
+
+    await expect(provider.createUploadGrant({
+      key: 'fare-screenshots/u1/t1/a.png', mimeType: 'image/png', maxSizeBytes: 4,
+      expiresAt: new Date(Date.now() - 1),
+    })).rejects.toThrow('UPLOAD_GRANT_EXPIRED');
+  });
+
+  it('rejects a forged in-memory grant that changes the authorized key', async () => {
+    const provider = new InMemoryObjectStorageProvider();
+    const grant = await provider.createUploadGrant({
+      key: 'fare-screenshots/u1/t1/a.png', mimeType: 'image/png', maxSizeBytes: 4, expiresAt,
+    });
+
+    await expect(provider.putForTest({ ...grant, objectKey: 'fare-screenshots/u1/t1/forged.png' }, Buffer.alloc(4), 'image/png'))
+      .rejects.toThrow('UPLOAD_GRANT_INVALID');
+  });
 });
