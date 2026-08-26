@@ -59,9 +59,30 @@ model Trip {
   reviews         Review[]
   reports         Report[]
   chatMessages    ChatMessage[]
+  objectUploads   ObjectUpload[]
 
   @@index([departTime]) // 鍒楄〃鎸?depart_time ASC
   @@map("trips")
+}
+
+model ObjectUpload {
+  id              String    @id @default(uuid())
+  purpose         String
+  provider        String
+  objectKey       String    @unique @map("object_key")
+  tripId          String    @map("trip_id")
+  trip            Trip      @relation(fields: [tripId], references: [id])
+  ownerId         String    @map("owner_id")
+  allowedMimeType String    @map("allowed_mime_type")
+  maxSizeBytes    Int       @map("max_size_bytes")
+  requestKey      String    @unique @map("request_key")
+  expiresAt       DateTime  @map("expires_at")
+  claimedAt       DateTime? @map("claimed_at")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([expiresAt, claimedAt, deletedAt])
+  @@map("object_uploads")
 }
 
 model TripMember {
