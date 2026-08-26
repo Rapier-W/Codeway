@@ -18,14 +18,14 @@ describe('PlatformService', () => {
     analyticsEvent: { create: jest.fn() },
     notificationEvent: { create: jest.fn() },
   };
-  const prisma: any = { $transaction: jest.fn((fn: any) => fn(tx)) };
+  const prisma: any = { $transaction: jest.fn((fn: any) => fn(tx)), rideRecord: { findUnique: jest.fn() } };
   const ride: Pick<RideService, 'openRide'> = {
-    openRide: jest.fn().mockReturnValue({
-      platform: 'amap',
+    openRide: jest.fn().mockImplementation((input) => ({
+      platform: input.platform,
       fallbackLevel: 'copy-route',
       copyRouteText: '起点：A；终点：B',
       hint: '将在浏览器中打开高德地图导航，不创建叫车订单。',
-    }),
+    })),
   };
   let service: PlatformService;
   beforeEach(() => { jest.clearAllMocks(); service = new PlatformService(prisma, ride as RideService); });
@@ -57,6 +57,19 @@ describe('PlatformService', () => {
   it('rejects an unknown platform even when called outside the HTTP DTO boundary', async () => {
     await expect(service.openRide('t1', 'u1', 'unknown' as any, 'bad-platform')).rejects.toMatchObject({ response: { message: 'RIDE_PLATFORM_INVALID' } });
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('returns the first ride record when concurrent creation loses the unique request-key race', async () => {
+    const trip = { id: 't1', status: 'FORMED', creatorId: 'u1', origin: 'A', destination: 'B', departTime: new Date('2026-08-27T10:00:00.000Z') };
+    tx.trip.findUnique.mockResolvedValue(trip);
+    tx.rideRecord.findUnique.mockResolvedValue(null);
+    tx.rideRecord.create.mockRejectedValue({ code: 'P2002' });
+    prisma.rideRecord.findUnique.mockResolvedValue({
+      id: 'r1', tripId: 't1', requestedBy: 'u1', platform: 'manual', requestKey: 'same-key', mode: 'MANUAL_FALLBACK', status: 'WAITING_RIDE', trip,
+    });
+
+    await expect(service.openRide('t1', 'u1', 'manual', 'same-key')).resolves.toMatchObject({ id: 'r1', duplicate: true, launch: { platform: 'manual' } });
+    expect(prisma.rideRecord.findUnique).toHaveBeenCalledWith({ where: { requestKey: 'same-key' }, include: { trip: true } });
   });
 
   it('rejects a non-creator and a booked trip before creating a ride record', async () => {

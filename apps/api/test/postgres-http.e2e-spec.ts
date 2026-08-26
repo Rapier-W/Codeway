@@ -63,6 +63,7 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     await prisma.user.update({ where: { id: outsiderId }, data: { phoneVerified: false } });
     await request(app.getHttpServer()).post(`/api/trips/${tripId}/join`).set('x-user-id', outsiderId)
       .set('Idempotency-Key', idempotencyKey('join-unverified')).send({ memberCount: 1 }).expect(403);
+    await expect(prisma.tripMember.findUnique({ where: { tripId_userId: { tripId, userId: outsiderId } } })).resolves.toBeNull();
     await prisma.user.update({ where: { id: outsiderId }, data: { phoneVerified: true } });
   });
 
@@ -86,6 +87,35 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     await prisma.trip.update({ where: { id: tripId }, data: { status: 'RIDE_BOOKED' } });
     await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId)
       .set('Idempotency-Key', idempotencyKey('ride-booked')).send({ platform: 'manual' }).expect(409);
+  });
+
+  it('recovers both concurrent open-ride requests with the same idempotency key', async () => {
+    await prisma.trip.update({ where: { id: tripId }, data: { status: 'FORMED' } });
+    const key = idempotencyKey('ride-concurrent-duplicate');
+    const [first, second] = await Promise.all([
+      request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId)
+        .set('Idempotency-Key', key).send({ platform: 'manual' }),
+      request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId)
+        .set('Idempotency-Key', key).send({ platform: 'manual' }),
+    ]);
+
+    expect([first.status, second.status]).toEqual([201, 201]);
+    expect(first.body.id).toBe(second.body.id);
+    expect([first.body.duplicate, second.body.duplicate]).toEqual(expect.arrayContaining([false, true]));
+  });
+
+  it('never lets a successful vehicle update be rolled back by a concurrent ride open', async () => {
+    await prisma.trip.update({ where: { id: tripId }, data: { status: 'FORMED' } });
+    const [ride, vehicle] = await Promise.all([
+      request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId)
+        .set('Idempotency-Key', idempotencyKey('ride-concurrent-vehicle')).send({ platform: 'manual' }),
+      request(app.getHttpServer()).post(`/api/trips/${tripId}/vehicle`).set('x-user-id', creatorId)
+        .set('Idempotency-Key', idempotencyKey('vehicle-concurrent-ride')).send({ plate: '浙A88888' }),
+    ]);
+
+    expect(vehicle.status).toBe(201);
+    expect([201, 409]).toContain(ride.status);
+    await expect(prisma.trip.findUniqueOrThrow({ where: { id: tripId } })).resolves.toMatchObject({ status: 'RIDE_BOOKED' });
   });
 
   it('enforces member-only chat and client-key retry', async () => {

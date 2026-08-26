@@ -8,6 +8,8 @@ import { TripStatus } from '../trips/trip-status';
 export class PlatformService {
   constructor(private readonly prisma: PrismaService, private readonly ride: RideService) {}
   private tx<T>(fn: (tx: any) => Promise<T>) { return this.prisma.$transaction(fn); }
+  // 同一行程的写入会在行锁上短暂排队；给状态机事务足够时间取得连接和行锁，避免把可序列化竞争误报为 500。
+  private stateTx<T>(fn: (tx: any) => Promise<T>) { return this.prisma.$transaction(fn, { maxWait: 10_000, timeout: 10_000 }); }
   private userId(value: string) { if (!value) throw new ForbiddenException('AUTH_REQUIRED'); return value; }
 
   verifyPhone(userId: string, phone: string) {
@@ -28,21 +30,34 @@ export class PlatformService {
 
   async openRide(tripId: string, userId: string, platform: RidePlatform, requestKey = `ride-${tripId}-${userId}`) {
     if (!RIDE_PLATFORMS.includes(platform as RidePlatform)) throw new ConflictException('RIDE_PLATFORM_INVALID');
-    return this.tx(async tx => {
-      const trip = await tx.trip.findUnique({ where: { id: tripId } });
-      if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
-      if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_OPEN_RIDE');
-      const existing = tx.rideRecord?.findUnique ? await tx.rideRecord.findUnique({ where: { requestKey } }) : null;
-      if (existing) {
-        if (existing.tripId !== tripId || existing.requestedBy !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
-        return { ...existing, duplicate: true, launch: this.ride.openRide(this.rideInput(trip, this.recordPlatform(existing.platform))) };
-      }
-      if (trip.status !== TripStatus.FORMED && trip.status !== TripStatus.WAITING_RIDE) throw new ConflictException('TRIP_NOT_READY_FOR_RIDE');
-      const launch = this.ride.openRide(this.rideInput(trip, platform));
-      const record = await tx.rideRecord.create({ data: { tripId, requestedBy: userId, platform, requestKey, mode: 'MANUAL_FALLBACK', status: 'WAITING_RIDE' } });
-      await tx.trip.update({ where: { id: tripId }, data: { status: 'WAITING_RIDE' } });
-      return { ...record, duplicate: false, launch };
-    });
+    try {
+      return await this.stateTx(async tx => {
+        await this.lockTrip(tx, tripId);
+        const trip = await tx.trip.findUnique({ where: { id: tripId } });
+        if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
+        if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_OPEN_RIDE');
+        const existing = tx.rideRecord?.findUnique ? await tx.rideRecord.findUnique({ where: { requestKey } }) : null;
+        if (existing) {
+          if (existing.tripId !== tripId || existing.requestedBy !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+          return { ...existing, duplicate: true, launch: this.ride.openRide(this.rideInput(trip, this.recordPlatform(existing.platform))) };
+        }
+        if (trip.status !== TripStatus.FORMED && trip.status !== TripStatus.WAITING_RIDE) throw new ConflictException('TRIP_NOT_READY_FOR_RIDE');
+        const launch = this.ride.openRide(this.rideInput(trip, platform));
+        const record = await tx.rideRecord.create({ data: { tripId, requestedBy: userId, platform, requestKey, mode: 'MANUAL_FALLBACK', status: 'WAITING_RIDE' } });
+        await tx.trip.update({ where: { id: tripId }, data: { status: 'WAITING_RIDE' } });
+        return { ...record, duplicate: false, launch };
+      });
+    } catch (error: any) {
+      if (error?.code !== 'P2002') throw error;
+      const existing = await this.prisma.rideRecord.findUnique({ where: { requestKey }, include: { trip: true } });
+      if (!existing) throw error;
+      if (existing.tripId !== tripId || existing.requestedBy !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+      return { ...existing, duplicate: true, launch: this.ride.openRide(this.rideInput(existing.trip, this.recordPlatform(existing.platform))) };
+    }
+  }
+
+  private async lockTrip(tx: any, tripId: string) {
+    if (tx.$queryRaw) await tx.$queryRaw`SELECT id FROM trips WHERE id = ${tripId} FOR UPDATE`;
   }
 
   private rideInput(trip: any, platform: RidePlatform) {
@@ -63,7 +78,8 @@ export class PlatformService {
     throw new ConflictException('RIDE_RECORD_PLATFORM_INVALID');
   }
   async updateVehicle(tripId: string, userId: string, data: any, requestKey = `vehicle-${tripId}-${userId}`) {
-    return this.tx(async tx => {
+    return this.stateTx(async tx => {
+      await this.lockTrip(tx, tripId);
       const trip = await tx.trip.findUnique({ where: { id: tripId } });
       if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_UPDATE_VEHICLE');
