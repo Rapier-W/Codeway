@@ -20,6 +20,21 @@ describe('RideService', () => {
     expect(result.hint).toMatch(/不创建叫车订单/);
   });
 
+  it('uses copy-route when either coordinate is the unresolved zero sentinel', () => {
+    const service = new RideService({} as any);
+
+    const result = service.openRide({
+      origin: '同济大学四平路校区',
+      destination: '上海虹桥站',
+      originPoint: { longitude: 0, latitude: 0 },
+      destinationPoint: { longitude: 121.326, latitude: 31.197 },
+      platform: 'amap',
+    });
+
+    expect(result.fallbackLevel).toBe('copy-route');
+    expect(result.deeplink).toBeUndefined();
+  });
+
   it('creates a navigation-only Amap deep link when both coordinates are valid', () => {
     const service = new RideService({} as any);
 

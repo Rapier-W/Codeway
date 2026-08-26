@@ -59,7 +59,8 @@ export class RideService {
       && (point?.longitude as number) >= -180
       && (point?.longitude as number) <= 180
       && (point?.latitude as number) >= -90
-      && (point?.latitude as number) <= 90;
+      && (point?.latitude as number) <= 90
+      && (point?.longitude !== 0 || point?.latitude !== 0);
   }
 
   private amapDeeplink(origin: CoordinatePoint, destination: CoordinatePoint, originName: string, destinationName: string) {
