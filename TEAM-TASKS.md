@@ -150,3 +150,12 @@
 - 数据库：正式库 `tongluxing` 与隔离库 `tongluxing_e2e` 均已应用 `20260825210000_auth_session`；移除未使用且没有 migration 的 `FareDispute.requestKey`，保留实际平台幂等字段。
 - 验证：API 默认测试 `12 suites / 60 tests`；真实 PostgreSQL HTTP E2E `2 suites / 9 tests`；Web `16 files / 30 tests`、typecheck、PWA production build 均通过；字体源扫描无 `@font-face`、外部字体 URL 或字体文件引用；`git diff --check` 无空白错误。
 - 未完成边界：七牛云短信签名/模板参数仍需使用真实供应商文档和测试凭据单独核验；生产密钥、HTTPS、Kodo、WebSocket 和自动报警仍不在本任务。
+
+## PREPROD-20260826-01 上线前代码收敛设计与实施计划
+
+- 状态：**设计与实施计划已完成，等待选择执行方式后开始实现**。
+- 设计规格：`docs/superpowers/specs/2026-08-26-preproduction-closure-design.md`，提交 `de23d35`。
+- 实施计划：`docs/superpowers/plans/2026-08-26-preproduction-closure.md`，提交 `b32a7b2`。
+- 范围：费用订单真正消费 `Idempotency-Key` 且不可覆盖；成团后费用变更申请、全员同意、旧确认作废与重新锁定；短信日志脱敏；截图 90 天留存/争议结案重计时；PostgreSQL E2E run-scoped 清理；真实数据库锁竞争和 `503 RIDE_STATE_BUSY` 验证。
+- 设计复核：独立只读复核确认现有覆盖订单实现不可接受；必须新增持久化边界、成员快照和真实锁超时证据。尚未修改业务代码。
+- 下一步：用户选择 subagent-driven 或 inline execution；选择后创建 `codex/preproduction-closure` 隔离 worktree，先运行基线，再按 Task 1–7 TDD 实施。
