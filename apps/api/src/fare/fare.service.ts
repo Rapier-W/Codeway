@@ -12,6 +12,7 @@ import { CreateFareScreenshotUploadDto } from './dto/create-fare-screenshot-uplo
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 const CONFIRMATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class FareService {
@@ -22,9 +23,7 @@ export class FareService {
   private async tx<T>(fn: (client: any) => Promise<T>) { return this.prisma.$transaction(fn); }
 
   private validateImage(dto: CreateFareOrderDto) {
-    if (!dto?.screenshotKey?.trim()) throw new BadRequestException('SCREENSHOT_REQUIRED');
-    if (!MIME_TYPES.has(String(dto.mimeType).toLowerCase())) throw new BadRequestException('SCREENSHOT_FORMAT_NOT_ALLOWED');
-    if (!Number.isInteger(Number(dto.sizeBytes)) || Number(dto.sizeBytes) < 0 || Number(dto.sizeBytes) > MAX_SCREENSHOT_BYTES) throw new BadRequestException('SCREENSHOT_SIZE_INVALID');
+    if (!UUID_V4_PATTERN.test(String(dto?.screenshotUploadId ?? ''))) throw new BadRequestException('SCREENSHOT_UPLOAD_INVALID');
     if (!Number.isInteger(Number(dto.actualTotalFareCents)) || Number(dto.actualTotalFareCents) < 0) throw new BadRequestException('FARE_AMOUNT_INVALID');
   }
 
@@ -53,9 +52,9 @@ export class FareService {
       // 争议期间结算、已付标记和互评必须同时锁定。
       settlementLocked: disputed || trip.disputeLocked,
       totalAmountCents: order.totalAmountCents,
-      screenshotKey: order.screenshotKey,
       screenshotMimeType: order.screenshotMimeType,
       screenshotSizeBytes: order.screenshotSizeBytes,
+      screenshotAvailable: true,
       createdAt: order.createdAt.toISOString(),
       confirmedAt: order.confirmedAt ? order.confirmedAt.toISOString() : null,
       costShare: {
@@ -167,7 +166,38 @@ export class FareService {
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_SUBMIT_ORDER');
       if (trip.disputeLocked || trip.status === 'ORDER_DISPUTED') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
       if (![TripStatus.RIDE_BOOKED, TripStatus.PENDING_SETTLEMENT].includes(trip.status as any)) throw new ConflictException('TRIP_NOT_READY_FOR_SETTLEMENT');
-      const data = { tripId, submittedBy: userId, screenshotKey: dto.screenshotKey.trim(), screenshotMimeType: dto.mimeType.toLowerCase(), screenshotSizeBytes: Number(dto.sizeBytes), totalAmountCents: Number(dto.actualTotalFareCents), status: 'PENDING_CONFIRMATION', confirmedAt: null };
+      const upload = await client.objectUpload.findUnique({ where: { id: dto.screenshotUploadId } });
+      const now = new Date();
+      if (!upload || upload.tripId !== tripId || upload.ownerId !== userId || upload.claimedAt || upload.deletedAt) {
+        throw new BadRequestException('SCREENSHOT_UPLOAD_INVALID');
+      }
+      if (new Date(upload.expiresAt) <= now) throw new BadRequestException('SCREENSHOT_UPLOAD_EXPIRED');
+
+      const metadata = await this.storage.statObject(upload.objectKey);
+      if (!metadata) throw new BadRequestException('SCREENSHOT_NOT_FOUND');
+      if (
+        metadata.key !== upload.objectKey ||
+        metadata.mimeType !== upload.allowedMimeType ||
+        !MIME_TYPES.has(metadata.mimeType) ||
+        !Number.isInteger(metadata.sizeBytes) ||
+        metadata.sizeBytes < 1 ||
+        metadata.sizeBytes > upload.maxSizeBytes ||
+        metadata.sizeBytes > MAX_SCREENSHOT_BYTES
+      ) {
+        throw new BadRequestException('SCREENSHOT_METADATA_MISMATCH');
+      }
+
+      const claimed = await client.objectUpload.updateMany({
+        where: { id: upload.id, claimedAt: null, deletedAt: null },
+        data: { claimedAt: now },
+      });
+      if (claimed.count !== 1) throw new ConflictException('SCREENSHOT_UPLOAD_ALREADY_CLAIMED');
+
+      const data = {
+        tripId, submittedBy: userId, screenshotKey: metadata.key,
+        screenshotMimeType: metadata.mimeType, screenshotSizeBytes: metadata.sizeBytes,
+        totalAmountCents: Number(dto.actualTotalFareCents), status: 'PENDING_CONFIRMATION', confirmedAt: null,
+      };
       const existing = await client.fareOrder.findUnique({ where: { tripId } });
       let order: any;
       if (existing) {
@@ -183,6 +213,43 @@ export class FareService {
       await this.audit(client, tripId, userId, 'fare-order-submit', { fareOrderId: order.id, totalAmountCents: order.totalAmountCents });
       return { fareOrder: order, overwritten: Boolean(existing), locked: false };
     });
+  }
+
+  async getScreenshotUrl(fareOrderId: string, userId: string) {
+    const order = await this.prisma.fareOrder.findUnique({ where: { id: fareOrderId } });
+    if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
+    await this.membership(this.prisma, order.tripId, userId);
+    const expiresInSeconds = 60;
+    const url = await this.storage.createPrivateDownloadUrl(order.screenshotKey, expiresInSeconds);
+    return { url, expiresAt: new Date(Date.now() + expiresInSeconds * 1000).toISOString() };
+  }
+
+  async cleanupExpiredUploads(now: Date): Promise<number> {
+    const candidates = await this.prisma.objectUpload.findMany({
+      where: { expiresAt: { lte: now }, claimedAt: null, deletedAt: null },
+    });
+    let cleaned = 0;
+    for (const candidate of candidates) {
+      const removed = await this.tx(async client => {
+        if (client.$queryRaw) await client.$queryRaw`SELECT id FROM object_uploads WHERE id = ${candidate.id} FOR UPDATE`;
+        const upload = await client.objectUpload.findUnique({ where: { id: candidate.id } });
+        if (!upload || upload.claimedAt || upload.deletedAt || new Date(upload.expiresAt) > now) return false;
+        try {
+          await this.storage.deleteObject(upload.objectKey);
+        } catch {
+          await this.audit(client, upload.tripId, '', 'fare-screenshot-upload-cleanup-delete-failed', {
+            uploadId: upload.id, objectKey: upload.objectKey, error: 'STORAGE_DELETE_FAILED',
+          });
+          return false;
+        }
+        const updated = await client.objectUpload.updateMany({
+          where: { id: upload.id, claimedAt: null, deletedAt: null }, data: { deletedAt: now },
+        });
+        return updated.count === 1;
+      });
+      if (removed) cleaned += 1;
+    }
+    return cleaned;
   }
 
   async confirmOrder(fareOrderId: string, userId: string) {

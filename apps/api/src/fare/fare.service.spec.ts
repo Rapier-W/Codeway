@@ -11,10 +11,16 @@ describe('FareService', () => {
     paymentMark: { upsert: jest.fn() },
     review: { findUnique: jest.fn(), create: jest.fn() },
     auditLog: { create: jest.fn() },
-    objectUpload: { findUnique: jest.fn(), create: jest.fn() },
+    objectUpload: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), findMany: jest.fn(), update: jest.fn() },
   };
-  const prisma: any = { $transaction: jest.fn((fn: any) => fn(tx)) };
-  const storage: any = { createUploadGrant: jest.fn() };
+  const prisma: any = {
+    $transaction: jest.fn((fn: any) => fn(tx)),
+    fareOrder: tx.fareOrder,
+    tripMember: tx.tripMember,
+    objectUpload: tx.objectUpload,
+    auditLog: tx.auditLog,
+  };
+  const storage: any = { createUploadGrant: jest.fn(), statObject: jest.fn(), createPrivateDownloadUrl: jest.fn(), deleteObject: jest.fn() };
   let service: FareService;
 
   beforeEach(() => {
@@ -27,6 +33,8 @@ describe('FareService', () => {
     tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u2' });
     tx.objectUpload.findUnique.mockResolvedValue(null);
     tx.objectUpload.create.mockImplementation(async ({ data }: any) => ({ id: 'upload-1', ...data }));
+    tx.objectUpload.updateMany.mockResolvedValue({ count: 1 });
+    tx.objectUpload.findMany.mockResolvedValue([]);
     storage.createUploadGrant.mockImplementation(async ({ key, expiresAt }: any) => ({
       objectKey: key,
       uploadUrl: 'https://upload.example.test',
@@ -35,19 +43,19 @@ describe('FareService', () => {
     }));
   });
 
-  it('rejects unsupported screenshots and oversized files before persistence', async () => {
+  it('rejects missing or invalid screenshot upload IDs before persistence', async () => {
     await expect(service.createOrder('t1', 'u1', {
-      screenshotKey: 'k', mimeType: 'image/gif', sizeBytes: 10, actualTotalFareCents: 1000,
+      screenshotUploadId: '', actualTotalFareCents: 1000,
     } as any)).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.createOrder('t1', 'u1', {
-      screenshotKey: 'k', mimeType: 'image/png', sizeBytes: 10 * 1024 * 1024 + 1, actualTotalFareCents: 1000,
+      screenshotUploadId: 'not-a-uuid', actualTotalFareCents: 1000,
     } as any)).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.fareOrder.create).not.toHaveBeenCalled();
   });
 
   it('allows only the trip creator to submit an order', async () => {
     await expect(service.createOrder('t1', 'u2', {
-      screenshotKey: 'k', mimeType: 'image/png', sizeBytes: 10, actualTotalFareCents: 1000,
+      screenshotUploadId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', actualTotalFareCents: 1000,
     } as any)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -149,5 +157,100 @@ describe('FareService', () => {
     tx.objectUpload.create.mockRejectedValueOnce({ code: 'P2002' });
     await expect(service.createScreenshotUpload('t1', 'u1', { mimeType: 'image/png', sizeBytes: 100 }, 'race-key'))
       .resolves.toMatchObject({ uploadId: 'raced-upload' });
+  });
+
+  it('uses provider metadata rather than browser metadata when atomically binding an order', async () => {
+    const activeUpload = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tripId: 't1', ownerId: 'u1',
+      objectKey: 'fare-screenshots/u1/t1/active.png', allowedMimeType: 'image/png',
+      maxSizeBytes: 10 * 1024 * 1024, expiresAt: new Date(Date.now() + 60_000), claimedAt: null,
+    };
+    tx.objectUpload.findUnique.mockResolvedValue(activeUpload);
+    storage.statObject.mockResolvedValue({ key: activeUpload.objectKey, mimeType: 'image/png', sizeBytes: 512 });
+    tx.fareOrder.findUnique.mockResolvedValue(null);
+    tx.fareOrder.create.mockImplementation(async ({ data }: any) => ({ id: 'fo1', ...data }));
+
+    await service.createOrder('t1', 'u1', { screenshotUploadId: activeUpload.id, actualTotalFareCents: 1200 } as any);
+
+    expect(tx.objectUpload.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: activeUpload.id, claimedAt: null }),
+    }));
+    expect(tx.fareOrder.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      screenshotKey: activeUpload.objectKey, screenshotMimeType: 'image/png', screenshotSizeBytes: 512,
+    }) }));
+  });
+
+  it('rejects expired, claimed, cross-trip, and metadata-mismatched uploads before claiming or writing an order', async () => {
+    const activeUpload = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tripId: 't1', ownerId: 'u1',
+      objectKey: 'fare-screenshots/u1/t1/active.png', allowedMimeType: 'image/png',
+      maxSizeBytes: 10 * 1024 * 1024, expiresAt: new Date(Date.now() + 60_000), claimedAt: null,
+    };
+    tx.objectUpload.findUnique.mockResolvedValue(activeUpload);
+    storage.statObject.mockResolvedValue({ key: activeUpload.objectKey, mimeType: 'image/webp', sizeBytes: 512 });
+    await expect(service.createOrder('t1', 'u1', { screenshotUploadId: activeUpload.id, actualTotalFareCents: 1200 } as any))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.objectUpload.updateMany).not.toHaveBeenCalled();
+    expect(tx.fareOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects expired, claimed, and cross-trip uploads without writing an order', async () => {
+    const baseUpload = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tripId: 't1', ownerId: 'u1',
+      objectKey: 'fare-screenshots/u1/t1/active.png', allowedMimeType: 'image/png',
+      maxSizeBytes: 10 * 1024 * 1024, expiresAt: new Date(Date.now() - 1), claimedAt: null,
+    };
+    tx.objectUpload.findUnique.mockResolvedValue(baseUpload);
+    await expect(service.createOrder('t1', 'u1', { screenshotUploadId: baseUpload.id, actualTotalFareCents: 1200 } as any))
+      .rejects.toBeInstanceOf(BadRequestException);
+
+    tx.objectUpload.findUnique.mockResolvedValue({ ...baseUpload, expiresAt: new Date(Date.now() + 60_000), claimedAt: new Date() });
+    await expect(service.createOrder('t1', 'u1', { screenshotUploadId: baseUpload.id, actualTotalFareCents: 1200 } as any))
+      .rejects.toBeInstanceOf(BadRequestException);
+
+    tx.objectUpload.findUnique.mockResolvedValue({ ...baseUpload, expiresAt: new Date(Date.now() + 60_000), tripId: 'other-trip' });
+    await expect(service.createOrder('t1', 'u1', { screenshotUploadId: baseUpload.id, actualTotalFareCents: 1200 } as any))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(storage.statObject).not.toHaveBeenCalled();
+    expect(tx.objectUpload.updateMany).not.toHaveBeenCalled();
+    expect(tx.fareOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('issues a precisely 60-second read URL only to trip members', async () => {
+    tx.fareOrder.findUnique.mockResolvedValue({ id: 'fo1', tripId: 't1', screenshotKey: 'fare-screenshots/u1/t1/active.png' });
+    tx.tripMember.findUnique.mockResolvedValue(null);
+    await expect(service.getScreenshotUrl('fo1', 'outsider')).rejects.toBeInstanceOf(ForbiddenException);
+
+    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u2' });
+    storage.createPrivateDownloadUrl.mockResolvedValue('memory://fare-screenshots/u1/t1/active.png?expires=60');
+    await expect(service.getScreenshotUrl('fo1', 'u2')).resolves.toMatchObject({ url: expect.stringContaining('expires=60') });
+    expect(storage.createPrivateDownloadUrl).toHaveBeenLastCalledWith('fare-screenshots/u1/t1/active.png', 60);
+  });
+
+  it('deletes only expired unclaimed undeleted uploads and marks them only after successful deletes', async () => {
+    const now = new Date('2026-08-26T00:00:00.000Z');
+    tx.objectUpload.findMany.mockResolvedValue([{ id: 'expired', objectKey: 'fare-screenshots/u1/t1/expired.png' }]);
+    tx.objectUpload.findUnique.mockResolvedValue({
+      id: 'expired', tripId: 't1', objectKey: 'fare-screenshots/u1/t1/expired.png',
+      expiresAt: new Date('2026-08-25T23:59:59.000Z'), claimedAt: null, deletedAt: null,
+    });
+    await expect(service.cleanupExpiredUploads(now)).resolves.toBe(1);
+    expect(storage.deleteObject).toHaveBeenCalledWith('fare-screenshots/u1/t1/expired.png');
+    expect(tx.objectUpload.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'expired', claimedAt: null, deletedAt: null }, data: { deletedAt: now },
+    });
+    expect(tx.objectUpload.findMany).toHaveBeenCalledWith({ where: { expiresAt: { lte: now }, claimedAt: null, deletedAt: null } });
+  });
+
+  it('does not mark an upload deleted when object deletion fails', async () => {
+    const now = new Date('2026-08-26T00:00:00.000Z');
+    tx.objectUpload.findMany.mockResolvedValue([{ id: 'expired', objectKey: 'fare-screenshots/u1/t1/expired.png' }]);
+    tx.objectUpload.findUnique.mockResolvedValue({
+      id: 'expired', tripId: 't1', objectKey: 'fare-screenshots/u1/t1/expired.png',
+      expiresAt: new Date('2026-08-25T23:59:59.000Z'), claimedAt: null, deletedAt: null,
+    });
+    storage.deleteObject.mockRejectedValue(new Error('storage unavailable'));
+    await expect(service.cleanupExpiredUploads(now)).resolves.toBe(0);
+    expect(tx.objectUpload.updateMany).not.toHaveBeenCalled();
   });
 });

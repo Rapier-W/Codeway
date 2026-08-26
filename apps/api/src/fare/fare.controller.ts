@@ -33,6 +33,11 @@ export class FareController {
     return this.fare.getOrder(id, userId);
   }
 
+  @Get('fare-orders/:id/screenshot')
+  getScreenshot(@Param('id') id: string, @CurrentUserId() userId: string) {
+    return this.fare.getScreenshotUrl(id, userId);
+  }
+
   @Post('fare-orders/:id/confirm')
   confirm(@Param('id') id: string, @CurrentUserId() userId: string) {
     return this.fare.confirmOrder(id, userId);
