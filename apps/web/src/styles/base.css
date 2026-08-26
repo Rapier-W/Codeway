@@ -1,4 +1,4 @@
-:root { color: #13233a; background: #f6f8fb; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-synthesis: none; }
+:root { color: #13233a; background: #f6f8fb; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100dvh; background: #f6f8fb; }
 button, a, input, [role="button"] { min-height: 44px; }

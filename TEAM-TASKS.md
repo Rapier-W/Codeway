@@ -139,3 +139,14 @@
   - `git diff --check` passed（仅有 Windows LF/CRLF 提示，无空白错误）。
 - 协同：Codex 统筹集成并复核 diff；Reasonix/独立集成审查提供问题清单；Kimi 只读契约审查确认接口边界。所有结论由 Codex 重新执行命令确认。
 - 剩余边界：真实短信/会话认证、Kodo 上传签名、WebSocket 实时聊天、自动报警通知、正式生产密钥与部署仍留在后续任务；当前 HTTP 联调继续使用开发登录和 `x-user-id` 占位。
+
+## AUTH-20260826-01 本地优先吸收远端认证
+
+- 状态：**已完成（隔离集成分支，待主线合并）**。
+- 基线：本地 `master` `cc43d50`；未整体合并远端 `origin/master`，保留本地 Web HTTP 联调、平台幂等 migration、车辆状态机、页面测试和协同文件。
+- 已吸收：七牛云短信验证码服务接口、验证码限流/过期/重试保护、Session 数据模型与 migration、HttpOnly Cookie、AuthGuard、认证限流依赖和认证 E2E 测试。
+- 本地优先冲突处理：保留 `CurrentUserId` 的 `req.user` 优先与非生产 `x-user-id` 回退；保留行程公开列表/详情和 `/trips/mine`；移除重复的旧 `/auth/me` 路由；保留所有业务 `Idempotency-Key` 与平台字段。
+- Web：真实 HTTP 默认使用短信验证码；`VITE_ENABLE_DEV_LOGIN=true` 才启用本地开发登录；增加 Cookie 会话恢复；未引入远端字体资源，保留本地字体系统并补充 `Microsoft YaHei`、`PingFang SC`、`Noto Sans CJK SC` 回退栈。
+- 数据库：正式库 `tongluxing` 与隔离库 `tongluxing_e2e` 均已应用 `20260825210000_auth_session`；移除未使用且没有 migration 的 `FareDispute.requestKey`，保留实际平台幂等字段。
+- 验证：API 默认测试 `12 suites / 60 tests`；真实 PostgreSQL HTTP E2E `2 suites / 9 tests`；Web `16 files / 30 tests`、typecheck、PWA production build 均通过；字体源扫描无 `@font-face`、外部字体 URL 或字体文件引用；`git diff --check` 无空白错误。
+- 未完成边界：七牛云短信签名/模板参数仍需使用真实供应商文档和测试凭据单独核验；生产密钥、HTTPS、Kodo、WebSocket 和自动报警仍不在本任务。

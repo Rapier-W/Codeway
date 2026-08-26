@@ -20,8 +20,11 @@ describe('Platform API (e2e)', () => {
 
   it('does not trust the development identity header in production', async () => {
     const prior = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    await request(app.getHttpServer()).post('/api/auth/phone').set('x-user-id', 'u1').send({ phone: '13800000000' }).expect(403);
-    process.env.NODE_ENV = prior;
+    try {
+      process.env.NODE_ENV = 'production';
+      await request(app.getHttpServer()).post('/api/auth/phone').set('x-user-id', 'u1').send({ phone: '13800000000' }).expect(401);
+    } finally {
+      process.env.NODE_ENV = prior;
+    }
   });
 });

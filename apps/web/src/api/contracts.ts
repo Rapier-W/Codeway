@@ -52,6 +52,7 @@ export interface EmergencyContact { id?: string; name: string; phone: string }
 export interface ReviewInput { fareOrderId: string; targetUserId: string; dimensions: { punctuality:number; communication:number; safety:number; fairness:number }; comment?: string; anonymous: boolean }
 
 export interface ApiClient {
+  getCurrentUser(): Promise<SessionUser | null>
   requestCode(phone: string, idempotencyKey: string): Promise<void>
   verifyCode(phone: string, code: string, idempotencyKey: string): Promise<SessionUser>
   devLogin(phone: string): Promise<SessionUser>

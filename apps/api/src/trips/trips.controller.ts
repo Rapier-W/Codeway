@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Public } from '../auth/public.decorator';
 import { CurrentUserId } from '../common/current-user.decorator';
 import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { CreateTripDto } from './dto/create-trip.dto';
@@ -18,6 +19,7 @@ export class TripsController {
   }
 
   // 列表和详情允许匿名浏览。
+  @Public()
   @Get()
   list(@Query() dto: ListTripsDto) {
     return this.trips.list(dto);
@@ -28,6 +30,7 @@ export class TripsController {
     return this.trips.listMine(userId, dto.role);
   }
 
+  @Public()
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.trips.findOne(id);

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Param, Post } from '@nestjs/common';
 import { CurrentUserId } from '../common/current-user.decorator';
 import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { PlatformService } from './platform.service';
@@ -19,11 +19,6 @@ export class PlatformController {
   @Post('auth/dev-login')
   devLogin(@Body() body: any) {
     return this.service.devLogin(String(body?.phone ?? 'dev-user'));
-  }
-
-  @Get('auth/me')
-  me(@CurrentUserId() userId: string) {
-    return this.service.me(userId);
   }
 
   @Post('trips/:id/ride/open')

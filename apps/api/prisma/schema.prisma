@@ -26,6 +26,7 @@ model User {
   createdTrips  Trip[]             @relation("TripCreator")
   memberships   TripMember[]
   confirmations TripConfirmation[]
+  sessions      Session[]
   chatMessages  ChatMessage[]
 
   @@map("users")
@@ -174,7 +175,6 @@ model FareDispute {
   reason      String
   status      String   @default("OPEN")
   createdAt   DateTime @default(now())
-  requestKey  String?   @unique
 }
 
 model FareOrderConfirmation {
@@ -277,6 +277,36 @@ model AnalyticsEvent {
   createdAt    DateTime @default(now())
   @@unique([eventKey])
   @@index([tripId])
+}
+
+model SmsCode {
+  id           String    @id @default(uuid())
+  phone        String
+  code         String
+  status       String    @default("PENDING")
+  requestIp    String?
+  attemptCount Int       @default(0)
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([phone])
+  @@index([phone, status])
+  @@map("sms_codes")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
 }
 
 model ChatMessage {
