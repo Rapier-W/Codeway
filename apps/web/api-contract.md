@@ -3,9 +3,9 @@
 ## 当前联调基线
 
 - 前端基础地址由 `VITE_API_BASE_URL` 提供，默认 `/api`。
-- 所有写操作携带 `Idempotency-Key`，认证 Cookie 使用 `credentials: include`。
+- 已支持幂等的写操作携带 `Idempotency-Key`，认证 Cookie 使用 `credentials: include`；费用订单创建目前尚未在服务端消费该请求键，不能宣称为端到端幂等。
 - 当前后端支持 HttpOnly Session Cookie；`x-user-id` 仅在非生产开发环境作为兼容回退，生产环境必须使用 Cookie 会话。
-- 客户端不保存 token、手机号原文、SOS 精确位置或订单截图。
+- 客户端不保存会话 token、手机号原文、SOS 精确位置或订单截图；费用截图的对象键、上传 token 和私有查看 URL 只存在于当前请求/点击流程，绝不写入 Pinia 或浏览器存储。
 
 ## 已实现行程接口
 
@@ -39,7 +39,9 @@
 | POST | `/trips/:id/ride/open` | 第三方叫车适配器；当前返回手动降级提示 |
 | POST | `/trips/:id/vehicle` | 保存车辆信息 |
 | POST | `/trips/:id/sos` | 记录 SOS 事件和通知事件，不自动报警 |
-| POST | `/trips/:id/fare-order` | 创建费用订单，金额为整数分 |
+| POST | `/trips/:id/fare-screenshot-uploads` | 仅行程发布者在 `RIDE_BOOKED` / `PENDING_SETTLEMENT` 申请一次性截图上传意图；请求含 `mimeType`、`sizeBytes` 与 `Idempotency-Key` |
+| POST | `/trips/:id/fare-order` | 创建费用订单；请求仅为 `{ screenshotUploadId, actualTotalFareCents }`，金额为整数分。单个上传意图只能原子消费一次；请求键幂等和既有订单的“变更申请”约束尚待补齐，当前不得将重提交流程当作费用变更入口 |
+| GET | `/fare-orders/:id/screenshot` | 仅同程成员主动请求；返回 60 秒私有查看 URL |
 | POST | `/fare-orders/:id/confirm` | 确认费用 |
 | POST | `/fare-orders/:id/dispute` | 发起费用异议并锁定结算 |
 | POST | `/fare-orders/:id/payment-mark` | 记录已付标记，争议时禁止操作 |
@@ -48,22 +50,36 @@
 | POST | `/reports` | 举报 |
 | POST | `/analytics/events` | 埋点和推荐决策记录 |
 
+### 私有费用截图上传链路
+
+1. Web/PWA 本地预检 JPEG、PNG、WebP 与不超过 10MB；预检只改善体验，后端和对象存储才是可信边界。
+2. 发布者请求上传意图。后端生成 `fare-screenshots/{userId}/{tripId}/{uuid}.{ext}`，授权有效 10 分钟。
+3. 浏览器用 `FormData` 将 `token` 与文件直传上传域名，直传请求不带 API Cookie 或 `x-user-id` 头。
+4. 创建订单只提交 `screenshotUploadId`。后端以 `ObjectUpload` 归属、有效期、未消费状态和对象存储 `stat` 的真实 key/MIME/大小核验；条件更新只允许一个请求消费意图。
+5. 行程成员点击“查看车费截图”后才请求短时 URL。前端不缓存 URL，打开新窗口时使用 `noopener,noreferrer`。
+
+上传意图仅允许 JPEG/PNG/WebP，最大 `10 * 1024 * 1024` 字节。失败重试必须重新申请上传意图；过期、未消费且用途为 `FARE_SCREENSHOT` 的对象由后端每小时清理。已绑定订单的对象绝不参与孤儿清理；其 90 天保留/争议处理后再保留 90 天政策仍等待后续归档任务落地。
+
+相关迁移：`20260826090000_kodo_fare_uploads`、`20260826100000_object_upload_declared_size`。
+
 ## 认证接口
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/auth/request-code` | 手机号验证码请求；服务端限流，开发无七牛云密钥时仅输出开发日志 |
+| POST | `/auth/request-code` | 手机号验证码请求；服务端限流，生产环境缺少供应商配置时拒绝发送 |
 | POST | `/auth/verify-code` | 校验验证码并设置 HttpOnly Session Cookie |
 | GET | `/auth/me` | 根据 Session Cookie 获取当前用户 |
 | POST | `/auth/logout` | 删除 Session 并清理 Cookie |
 
 Web 请求统一使用 `credentials: include`。真实 HTTP 默认走短信验证码，只有 `VITE_ENABLE_DEV_LOGIN=true` 才启用开发登录降级。
 
+本地开发短信 Fake 当前会向进程控制台输出手机号和验证码，绝不能用于共享环境或生产；上线前必须将其改为脱敏、受控的开发测试机制。七牛云供应商失败日志也不得记录手机号或原始响应。
+
 ## 尚未完成的真实供应商核验
 
 - 七牛云短信：服务端适配已完成，但签名、接口路径和模板参数仍需真实供应商文档/测试凭据核验。
 - 微信登录/手机号授权：当前使用开发会话占位。
-- Kodo：费用接口只接受对象键元数据，上传签名尚未接入。
+- Kodo：私有桶 Provider、受限上传意图、对象元数据核验和短时读取契约已完成；当前仅用内存 Fake 验证，未配置真实私有桶、域名或 AK/SK，不能视为真实 Kodo 联调完成。
 - 高德和第三方叫车 Deep Link：当前走手动降级。
 - WebSocket：聊天仍是 REST 边界，未做实时推送。
 
@@ -76,7 +92,7 @@ Web 请求统一使用 `credentials: include`。真实 HTTP 默认走短信验�
 ## 错误格式
 
 ```json
-{ "statusCode": 409, "message": "TRIP_CAPACITY_EXCEEDED", "error": "Conflict" }
+{ "code": "TRIP_CAPACITY_EXCEEDED", "message": "TRIP_CAPACITY_EXCEEDED", "statusCode": 409 }
 ```
 
 前端 Adapter 应把 HTTP 状态和服务端错误码转换为统一的 `ApiError`，页面必须提供重试或下一步操作，禁止空白页。
@@ -88,4 +104,4 @@ Web 请求统一使用 `credentials: include`。真实 HTTP 默认走短信验�
 | GET | `/trips/mine?role=joined|published` | 我的出行两个角色标签 |
 | GET | `/trips/:id/messages?before=&limit=` | 聊天历史游标分页 |
 
-订单详情现在返回 `members` 摘要，评价页从同程成员中选择目标并排除当前用户。车辆、叫车和联系人页面已移除硬编码业务数据；叫车平台不可用时继续使用复制路线与手动拨号降级。费用创建仍等待 Kodo 上传签名，不在前端伪造截图上传成功。
+订单详情现在返回 `members` 摘要，评价页从同程成员中选择目标并排除当前用户。车辆、叫车和联系人页面已移除硬编码业务数据；叫车平台不可用时继续使用复制路线与手动拨号降级。费用创建已使用受限上传意图与直传 Adapter，但真实 Kodo 私有桶仍未配置。
