@@ -27,6 +27,17 @@ export class SmsService {
   }
 
   /**
+   * Mask a phone number for log output: keep the first 3 and last 4 digits and
+   * obscure the middle. Prevents the full identifier from leaking into console
+   * logs (dev or production). e.g. 13800000000 -> 138****0000
+   */
+  private maskPhone(phone: string): string {
+    const n = this.normalizePhone(phone);
+    if (n.length <= 7) return '*'.repeat(n.length);
+    return `${n.slice(0, 3)}****${n.slice(-4)}`;
+  }
+
+  /**
    * Send a verification code to the given phone.
    * Implements: rate limiting (60s cooldown, 5/day), expiry (5min), replay
    * protection (1 pending per phone).
@@ -69,8 +80,11 @@ export class SmsService {
     });
 
     if (this.isDevMode) {
-      // Dev mode: log the code instead of sending SMS
-      console.log(`[DEV SMS] phone=${phone} code=${code}`);
+      // Dev mode: surface the code locally (no real SMS provider is wired up).
+      // The phone is masked; the code only ever reaches the console here
+      // because isDevMode requires Qiniu credentials to be absent, which can
+      // never be true in production.
+      console.log(`[DEV SMS] phone=${this.maskPhone(phone)} code=${code}`);
       return;
     }
 
@@ -182,7 +196,7 @@ export class SmsService {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      console.error(`[Qiniu SMS] phone=${phone} status=${response.status} body=${text}`);
+      console.error(`[Qiniu SMS] phone=${this.maskPhone(phone)} status=${response.status} body=${text}`);
       throw new ConflictException('SMS_SEND_FAILED');
     }
   }

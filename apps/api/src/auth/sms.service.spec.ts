@@ -118,4 +118,19 @@ describe('SmsService', () => {
       expect.objectContaining({ where: { id: 'c1' }, data: { status: 'EXPIRED' } }),
     );
   });
+
+  it('masks the phone number in dev-mode logs and never logs the raw phone', async () => {
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    prisma.smsCode.findFirst.mockResolvedValue(null);
+    prisma.smsCode.count.mockResolvedValue(0);
+    prisma.smsCode.updateMany.mockResolvedValue({ count: 1 });
+    prisma.smsCode.create.mockResolvedValue({ id: 'c1', code: '123456', status: 'PENDING' });
+
+    await service.sendCode('13800000000', '127.0.0.1');
+
+    const logged = spy.mock.calls.map((c) => String(c[0])).join(' ');
+    expect(logged).toContain('138****0000');
+    expect(logged).not.toContain('13800000000');
+    spy.mockRestore();
+  });
 });
