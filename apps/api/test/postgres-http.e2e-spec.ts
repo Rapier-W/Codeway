@@ -189,7 +189,7 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
       .set('Idempotency-Key', idempotencyKey('fare-upload')).send({ mimeType: 'image/png', sizeBytes: 100 }).expect(201);
     await storage.putForTest({ objectKey: intent.body.objectKey, uploadUrl: intent.body.uploadUrl, uploadToken: intent.body.uploadToken, expiresAt: new Date(intent.body.expiresAt) }, Buffer.alloc(100), 'image/png');
     const created = await request(app.getHttpServer()).post(`/api/trips/${tripId}/fare-order`).set('x-user-id', creatorId)
-      .send({ screenshotUploadId: intent.body.uploadId, actualTotalFareCents: 1200 }).expect(201);
+      .set('Idempotency-Key', idempotencyKey('fare-order')).send({ screenshotUploadId: intent.body.uploadId, actualTotalFareCents: 1200 }).expect(201);
     fareOrderId = created.body.fareOrder.id;
     await request(app.getHttpServer()).get(`/api/fare-orders/${fareOrderId}`).set('x-user-id', outsiderId).expect(403);
     await request(app.getHttpServer()).get(`/api/fare-orders/${fareOrderId}/screenshot`).set('x-user-id', outsiderId).expect(403);

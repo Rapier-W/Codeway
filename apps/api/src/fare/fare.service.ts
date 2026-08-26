@@ -159,9 +159,20 @@ export class FareService {
     });
   }
 
-  async createOrder(tripId: string, userId: string, dto: CreateFareOrderDto) {
+  async createOrder(tripId: string, userId: string, dto: CreateFareOrderDto, idempotencyKey?: string) {
     this.validateImage(dto);
     return this.tx(async client => {
+      // 幂等：相同请求键（客户端重试 / 代理重放）直接返回首次结果，避免重复落单或重复扣减截图。
+      if (idempotencyKey) {
+        const prior = await client.fareOrder.findUnique({ where: { requestKey: idempotencyKey } });
+        if (prior) {
+          if (prior.tripId !== tripId || prior.submittedBy !== userId || prior.totalAmountCents !== Number(dto.actualTotalFareCents)) {
+            throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+          }
+          return { fareOrder: prior, duplicate: true, overwritten: false, locked: false };
+        }
+      }
+
       const trip = await this.lockTrip(client, tripId);
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_SUBMIT_ORDER');
       if (trip.disputeLocked || trip.status === 'ORDER_DISPUTED') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
@@ -198,15 +209,29 @@ export class FareService {
         tripId, submittedBy: userId, screenshotKey: metadata.key,
         screenshotMimeType: metadata.mimeType, screenshotSizeBytes: metadata.sizeBytes,
         totalAmountCents: Number(dto.actualTotalFareCents), status: 'PENDING_CONFIRMATION', confirmedAt: null,
+        requestKey: idempotencyKey ?? null,
       };
       const existing = await client.fareOrder.findUnique({ where: { tripId } });
       let order: any;
       if (existing) {
         if (existing.status === 'DISPUTED') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
+        // 仅未确认（PENDING_CONFIRMATION）的订单允许发单人更正重提；确认/争议/归档后不可被静默覆盖。
+        if (existing.status !== 'PENDING_CONFIRMATION') throw new ConflictException('FARE_ORDER_NOT_MODIFIABLE');
         if (client.fareOrderConfirmation?.deleteMany) await client.fareOrderConfirmation.deleteMany({ where: { fareOrderId: existing.id } });
         if (client.paymentMark?.deleteMany) await client.paymentMark.deleteMany({ where: { fareOrderId: existing.id } });
         order = await client.fareOrder.update({ where: { id: existing.id }, data });
-      } else order = await client.fareOrder.create({ data });
+      } else {
+        try {
+          order = await client.fareOrder.create({ data });
+        } catch (error: any) {
+          if (error?.code !== 'P2002' || !idempotencyKey) throw error;
+          const raced = await client.fareOrder.findUnique({ where: { requestKey: idempotencyKey } });
+          if (!raced || raced.tripId !== tripId || raced.submittedBy !== userId || raced.totalAmountCents !== Number(dto.actualTotalFareCents)) {
+            throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+          }
+          order = raced;
+        }
+      }
       if (trip.status === TripStatus.RIDE_BOOKED) {
         if (!canTransition(trip.status, TripStatus.PENDING_SETTLEMENT)) throw new ConflictException('INVALID_TRIP_TRANSITION');
         await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_SETTLEMENT, disputeLocked: false, version: { increment: 1 } } });

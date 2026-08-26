@@ -296,4 +296,42 @@ describe('FareService', () => {
     await expect(service.cleanupExpiredUploads(now)).resolves.toBe(0);
     expect(tx.objectUpload.updateMany).not.toHaveBeenCalled();
   });
+
+  it('returns the original order when the same idempotency key is replayed', async () => {
+    const prior = { id: 'fo1', tripId: 't1', submittedBy: 'u1', totalAmountCents: 1200, status: 'PENDING_CONFIRMATION', screenshotKey: 'k' };
+    tx.fareOrder.findUnique.mockResolvedValueOnce(prior);
+    const result = await service.createOrder('t1', 'u1', {
+      screenshotUploadId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', actualTotalFareCents: 1200,
+    } as any, 'order-key-1');
+    expect(result.duplicate).toBe(true);
+    expect(result.fareOrder.id).toBe('fo1');
+    expect(tx.objectUpload.updateMany).not.toHaveBeenCalled();
+    expect(tx.fareOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an idempotency key reused with a different amount', async () => {
+    tx.fareOrder.findUnique.mockResolvedValueOnce({ id: 'fo1', tripId: 't1', submittedBy: 'u1', totalAmountCents: 1200, status: 'PENDING_CONFIRMATION' });
+    await expect(service.createOrder('t1', 'u1', {
+      screenshotUploadId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', actualTotalFareCents: 9999,
+    } as any, 'order-key-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(tx.fareOrder.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses to overwrite a confirmed order even with a fresh idempotency key', async () => {
+    tx.fareOrder.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'fo1', tripId: 't1', status: 'CONFIRMED' });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', creatorId: 'u1', status: 'PENDING_SETTLEMENT', disputeLocked: false, members: [{ userId: 'u1' }] });
+    tx.objectUpload.findUnique.mockResolvedValue({
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tripId: 't1', ownerId: 'u1', objectKey: 'k', allowedMimeType: 'image/png',
+      maxSizeBytes: 100, expiresAt: new Date(Date.now() + 60_000), claimedAt: null, deletedAt: null,
+    });
+    storage.statObject.mockResolvedValue({ key: 'k', mimeType: 'image/png', sizeBytes: 50 });
+    tx.objectUpload.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.createOrder('t1', 'u1', {
+      screenshotUploadId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', actualTotalFareCents: 1200,
+    } as any, 'order-key-new')).rejects.toBeInstanceOf(ConflictException);
+    expect(tx.fareOrder.update).not.toHaveBeenCalled();
+    expect(tx.fareOrder.create).not.toHaveBeenCalled();
+  });
 });

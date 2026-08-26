@@ -183,6 +183,7 @@ model FareOrder {
   createdAt            DateTime @default(now())
   confirmedAt          DateTime?
   updatedAt            DateTime @updatedAt
+  requestKey           String?  @unique @map("request_key")
   disputes             FareDispute[]
   confirmations        FareOrderConfirmation[]
   paymentMarks         PaymentMark[]
