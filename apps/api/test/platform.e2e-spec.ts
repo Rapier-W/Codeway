@@ -7,8 +7,9 @@ import { configureHttpApp } from '../src/http-app';
 
 describe('Platform API (e2e)', () => {
   let app: INestApplication;
+  const transaction = jest.fn((fn: any) => fn({ trip: { findUnique: jest.fn().mockResolvedValue({ id: 't1', creatorId: 'u1', status: 'FORMED' }), update: jest.fn() }, tripMember: { findUnique: jest.fn().mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1' }) }, rideRecord: { create: jest.fn().mockResolvedValue({ id: 'r1', mode: 'MANUAL_FALLBACK' }) }, sosEvent: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 's1' }) }, emergencyContact: { findMany: jest.fn().mockResolvedValue([]) }, notificationEvent: { create: jest.fn() } }));
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PrismaService).useValue({ user: { upsert: jest.fn().mockResolvedValue({ id: 'u1', phoneVerified: true }) }, $transaction: jest.fn((fn: any) => fn({ trip: { findUnique: jest.fn().mockResolvedValue({ id: 't1', creatorId: 'u1', status: 'FORMED' }), update: jest.fn() }, tripMember: { findUnique: jest.fn().mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1' }) }, rideRecord: { create: jest.fn().mockResolvedValue({ id: 'r1', mode: 'MANUAL_FALLBACK' }) }, sosEvent: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 's1' }) }, emergencyContact: { findMany: jest.fn().mockResolvedValue([]) }, notificationEvent: { create: jest.fn() } })) }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(PrismaService).useValue({ user: { upsert: jest.fn().mockResolvedValue({ id: 'u1', phoneVerified: true }) }, $transaction: transaction }).compile();
     app = configureHttpApp(moduleRef.createNestApplication()); await app.init();
   });
   afterAll(async () => app.close());
@@ -27,5 +28,14 @@ describe('Platform API (e2e)', () => {
     } finally {
       process.env.NODE_ENV = prior;
     }
+  });
+
+  it('maps a bounded ride state transaction timeout to the controlled 503 code', async () => {
+    transaction.mockRejectedValueOnce({ code: 'P2028' });
+
+    const response = await request(app.getHttpServer()).post('/api/trips/t1/ride/open')
+      .set('x-user-id', 'u1').send({ platform: 'manual' }).expect(503);
+
+    expect(response.body).toEqual(expect.objectContaining({ code: 'RIDE_STATE_BUSY', statusCode: 503 }));
   });
 });

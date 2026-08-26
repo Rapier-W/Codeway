@@ -102,6 +102,7 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     expect([first.status, second.status]).toEqual([201, 201]);
     expect(first.body.id).toBe(second.body.id);
     expect([first.body.duplicate, second.body.duplicate]).toEqual(expect.arrayContaining([false, true]));
+    await expect(prisma.rideRecord.count({ where: { requestKey: key } })).resolves.toBe(1);
   });
 
   it('never lets a successful vehicle update be rolled back by a concurrent ride open', async () => {

@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { RideService } from '../ride/ride.service';
 import { RIDE_PLATFORMS, RidePlatform } from '../ride/ride-adapter';
@@ -48,6 +48,9 @@ export class PlatformService {
         return { ...record, duplicate: false, launch };
       });
     } catch (error: any) {
+      if (error?.code === 'P2028' || error?.code === 'P2024') {
+        throw new ServiceUnavailableException('RIDE_STATE_BUSY');
+      }
       if (error?.code !== 'P2002') throw error;
       const existing = await this.prisma.rideRecord.findUnique({ where: { requestKey }, include: { trip: true } });
       if (!existing) throw error;
