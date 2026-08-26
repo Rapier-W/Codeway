@@ -4,6 +4,7 @@ import { CreateFareOrderDto } from './dto/create-fare-order.dto';
 import { DisputeFareDto } from './dto/dispute-fare.dto';
 import { PaymentMarkDto } from './dto/payment-mark.dto';
 import { CreateReviewDto } from './dto/create-review.dto';
+import { CreateFareScreenshotUploadDto } from './dto/create-fare-screenshot-upload.dto';
 import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { FareService } from './fare.service';
 
@@ -14,6 +15,16 @@ export class FareController {
   @Post('trips/:id/fare-order')
   create(@Param('id') id: string, @CurrentUserId() userId: string, @Body() dto: CreateFareOrderDto) {
     return this.fare.createOrder(id, userId, dto);
+  }
+
+  @Post('trips/:id/fare-screenshot-uploads')
+  createScreenshotUpload(
+    @Param('id') id: string,
+    @CurrentUserId() userId: string,
+    @Body() dto: CreateFareScreenshotUploadDto,
+    @IdempotencyKey() idempotencyKey: string,
+  ) {
+    return this.fare.createScreenshotUpload(id, userId, dto, idempotencyKey);
   }
 
   // 订单详情：仅行程成员可访问。同时暴露 /orders/:id 以兼容前端既有契约路径。

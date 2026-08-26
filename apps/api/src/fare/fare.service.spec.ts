@@ -11,18 +11,28 @@ describe('FareService', () => {
     paymentMark: { upsert: jest.fn() },
     review: { findUnique: jest.fn(), create: jest.fn() },
     auditLog: { create: jest.fn() },
+    objectUpload: { findUnique: jest.fn(), create: jest.fn() },
   };
   const prisma: any = { $transaction: jest.fn((fn: any) => fn(tx)) };
+  const storage: any = { createUploadGrant: jest.fn() };
   let service: FareService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new FareService(prisma);
+    service = new FareService(prisma, storage);
     tx.trip.findUnique.mockResolvedValue({
       id: 't1', creatorId: 'u1', status: 'PENDING_SETTLEMENT',
       members: [{ userId: 'u1' }, { userId: 'u2' }],
     });
     tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u2' });
+    tx.objectUpload.findUnique.mockResolvedValue(null);
+    tx.objectUpload.create.mockImplementation(async ({ data }: any) => ({ id: 'upload-1', ...data }));
+    storage.createUploadGrant.mockImplementation(async ({ key, expiresAt }: any) => ({
+      objectKey: key,
+      uploadUrl: 'https://upload.example.test',
+      uploadToken: 'temporary-upload-token',
+      expiresAt,
+    }));
   });
 
   it('rejects unsupported screenshots and oversized files before persistence', async () => {
@@ -80,5 +90,52 @@ describe('FareService', () => {
     tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u1' });
     await expect(service.createReview('fo1', 'u1', { targetUserId: 'u1', punctuality: 5, safety: 5, politeness: 5, communication: 5 } as any, 'review-key')).rejects.toBeInstanceOf(ForbiddenException);
     expect(tx.review.create).not.toHaveBeenCalled();
+  });
+
+  it('allows only the creator of a ride-booked trip to obtain a PNG upload intent', async () => {
+    tx.trip.findUnique.mockResolvedValue({
+      id: 't1', creatorId: 'u1', status: 'RIDE_BOOKED', disputeLocked: false, members: [],
+    });
+
+    const result = await service.createScreenshotUpload('t1', 'u1', { mimeType: 'image/png', sizeBytes: 100 }, 'intent-1');
+
+    expect(result.uploadId).toBe('upload-1');
+    expect(result.objectKey).toMatch(/^fare-screenshots\/u1\/t1\/[0-9a-f-]+\.png$/);
+    expect(storage.createUploadGrant).toHaveBeenCalledWith(expect.objectContaining({
+      mimeType: 'image/png', maxSizeBytes: 10 * 1024 * 1024,
+    }));
+    expect(JSON.stringify(result)).not.toMatch(/accessKey|secret/i);
+  });
+
+  it('rejects non-creators, unsupported uploads, locked trips and idempotency reuse with different input', async () => {
+    await expect(service.createScreenshotUpload('t1', 'u2', { mimeType: 'image/png', sizeBytes: 100 }, 'intent-2'))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.createScreenshotUpload('t1', 'u1', { mimeType: 'image/gif', sizeBytes: 100 }, 'intent-3'))
+      .rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createScreenshotUpload('t1', 'u1', { mimeType: 'image/png', sizeBytes: 11 * 1024 * 1024 }, 'intent-4'))
+      .rejects.toBeInstanceOf(BadRequestException);
+
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', creatorId: 'u1', status: 'RIDE_BOOKED', disputeLocked: true, members: [] });
+    await expect(service.createScreenshotUpload('t1', 'u1', { mimeType: 'image/png', sizeBytes: 100 }, 'intent-5'))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', creatorId: 'u1', status: 'RIDE_BOOKED', disputeLocked: false, members: [] });
+    tx.objectUpload.findUnique.mockResolvedValue({
+      id: 'existing-upload', tripId: 't1', ownerId: 'u1', allowedMimeType: 'image/jpeg',
+      objectKey: 'fare-screenshots/u1/t1/existing.jpg', maxSizeBytes: 10 * 1024 * 1024,
+      declaredSizeBytes: 100,
+      expiresAt: new Date(Date.now() + 60_000), claimedAt: null,
+    });
+    await expect(service.createScreenshotUpload('t1', 'u1', { mimeType: 'image/png', sizeBytes: 100 }, 'intent-6'))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    tx.objectUpload.findUnique.mockResolvedValue({
+      id: 'existing-upload', tripId: 't1', ownerId: 'u1', allowedMimeType: 'image/png',
+      objectKey: 'fare-screenshots/u1/t1/existing.png', maxSizeBytes: 100,
+      declaredSizeBytes: 100,
+      expiresAt: new Date(Date.now() + 60_000), claimedAt: null,
+    });
+    await expect(service.createScreenshotUpload('t1', 'u1', { mimeType: 'image/png', sizeBytes: 200 }, 'intent-7'))
+      .rejects.toBeInstanceOf(ConflictException);
   });
 });

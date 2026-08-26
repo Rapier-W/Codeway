@@ -1,10 +1,13 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { CreateFareOrderDto } from './dto/create-fare-order.dto';
 import { DisputeFareDto } from './dto/dispute-fare.dto';
 import { PaymentMarkDto } from './dto/payment-mark.dto';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { canTransition, TripStatus } from '../trips/trip-status';
+import { OBJECT_STORAGE_PROVIDER, ObjectStorageProvider } from '../storage/object-storage.provider';
+import { CreateFareScreenshotUploadDto } from './dto/create-fare-screenshot-upload.dto';
 
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 const CONFIRMATION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -12,7 +15,10 @@ const MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 @Injectable()
 export class FareService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(OBJECT_STORAGE_PROVIDER) private readonly storage: ObjectStorageProvider,
+  ) {}
   private async tx<T>(fn: (client: any) => Promise<T>) { return this.prisma.$transaction(fn); }
 
   private validateImage(dto: CreateFareOrderDto) {
@@ -75,6 +81,77 @@ export class FareService {
     const trip = await client.trip.findUnique({ where: { id: tripId }, include: { members: true } });
     if (!trip) throw new NotFoundException('TRIP_NOT_FOUND');
     return trip;
+  }
+
+  async createScreenshotUpload(
+    tripId: string,
+    userId: string,
+    dto: CreateFareScreenshotUploadDto,
+    idempotencyKey: string,
+  ) {
+    const mimeType = String(dto?.mimeType ?? '').toLowerCase();
+    const sizeBytes = Number(dto?.sizeBytes);
+    if (!MIME_TYPES.has(mimeType)) throw new BadRequestException('SCREENSHOT_FORMAT_NOT_ALLOWED');
+    if (!Number.isInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > MAX_SCREENSHOT_BYTES) {
+      throw new BadRequestException('SCREENSHOT_SIZE_INVALID');
+    }
+
+    return this.tx(async client => {
+      const trip = await this.lockTrip(client, tripId);
+      if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_UPLOAD_SCREENSHOT');
+      if (trip.disputeLocked || trip.status === 'ORDER_DISPUTED') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
+      if (![TripStatus.RIDE_BOOKED, TripStatus.PENDING_SETTLEMENT].includes(trip.status)) {
+        throw new ConflictException('TRIP_NOT_READY_FOR_SETTLEMENT');
+      }
+
+      const existing = await client.objectUpload.findUnique({ where: { requestKey: idempotencyKey } });
+      const now = new Date();
+      let upload: any;
+      if (existing) {
+        if (
+          existing.tripId !== tripId ||
+          existing.ownerId !== userId ||
+          existing.allowedMimeType !== mimeType ||
+          existing.declaredSizeBytes !== sizeBytes
+        ) {
+          throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+        }
+        if (existing.claimedAt) throw new ConflictException('SCREENSHOT_UPLOAD_ALREADY_CLAIMED');
+        if (new Date(existing.expiresAt) <= now) throw new ConflictException('SCREENSHOT_UPLOAD_EXPIRED');
+        upload = existing;
+      } else {
+        const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.slice('image/'.length);
+        upload = await client.objectUpload.create({
+          data: {
+            purpose: 'FARE_SCREENSHOT',
+            provider: 'KODO',
+            objectKey: `fare-screenshots/${userId}/${tripId}/${randomUUID()}.${extension}`,
+            tripId,
+            ownerId: userId,
+            allowedMimeType: mimeType,
+            declaredSizeBytes: sizeBytes,
+            maxSizeBytes: MAX_SCREENSHOT_BYTES,
+            requestKey: idempotencyKey,
+            expiresAt: new Date(now.getTime() + 10 * 60 * 1000),
+          },
+        });
+      }
+
+      const grant = await this.storage.createUploadGrant({
+        key: upload.objectKey,
+        mimeType: upload.allowedMimeType,
+        maxSizeBytes: upload.maxSizeBytes,
+        expiresAt: upload.expiresAt,
+      });
+      await this.audit(client, tripId, userId, 'fare-screenshot-upload-intent', { uploadId: upload.id });
+      return {
+        uploadId: upload.id,
+        objectKey: grant.objectKey,
+        uploadUrl: grant.uploadUrl,
+        uploadToken: grant.uploadToken,
+        expiresAt: grant.expiresAt.toISOString(),
+      };
+    });
   }
 
   async createOrder(tripId: string, userId: string, dto: CreateFareOrderDto) {

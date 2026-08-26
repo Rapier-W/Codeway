@@ -74,6 +74,7 @@ model ObjectUpload {
   trip            Trip      @relation(fields: [tripId], references: [id])
   ownerId         String    @map("owner_id")
   allowedMimeType String    @map("allowed_mime_type")
+  declaredSizeBytes Int     @map("declared_size_bytes")
   maxSizeBytes    Int       @map("max_size_bytes")
   requestKey      String    @unique @map("request_key")
   expiresAt       DateTime  @map("expires_at")
