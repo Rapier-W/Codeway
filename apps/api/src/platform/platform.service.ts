@@ -9,7 +9,16 @@ export class PlatformService {
   constructor(private readonly prisma: PrismaService, private readonly ride: RideService) {}
   private tx<T>(fn: (tx: any) => Promise<T>) { return this.prisma.$transaction(fn); }
   // 同一行程的写入会在行锁上短暂排队；给状态机事务足够时间取得连接和行锁，避免把可序列化竞争误报为 500。
-  private stateTx<T>(fn: (tx: any) => Promise<T>) { return this.prisma.$transaction(fn, { maxWait: 10_000, timeout: 10_000 }); }
+  private async stateTx<T>(fn: (tx: any) => Promise<T>) {
+    try {
+      return await this.prisma.$transaction(fn, { maxWait: 10_000, timeout: 10_000 });
+    } catch (error: any) {
+      if (error?.code === 'P2028' || error?.code === 'P2024') {
+        throw new ServiceUnavailableException('RIDE_STATE_BUSY');
+      }
+      throw error;
+    }
+  }
   private userId(value: string) { if (!value) throw new ForbiddenException('AUTH_REQUIRED'); return value; }
 
   verifyPhone(userId: string, phone: string) {
@@ -48,9 +57,6 @@ export class PlatformService {
         return { ...record, duplicate: false, launch };
       });
     } catch (error: any) {
-      if (error?.code === 'P2028' || error?.code === 'P2024') {
-        throw new ServiceUnavailableException('RIDE_STATE_BUSY');
-      }
       if (error?.code !== 'P2002') throw error;
       const existing = await this.prisma.rideRecord.findUnique({ where: { requestKey }, include: { trip: true } });
       if (!existing) throw error;

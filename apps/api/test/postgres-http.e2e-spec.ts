@@ -5,10 +5,12 @@ process.env.DATABASE_URL = databaseUrl;
 
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ThrottlerStorage } from '@nestjs/throttler';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureHttpApp } from '../src/http-app';
 import { PrismaService } from '../src/prisma.service';
+import { PlatformService } from '../src/platform/platform.service';
 import { OBJECT_STORAGE_PROVIDER } from '../src/storage/object-storage.provider';
 import { InMemoryObjectStorageProvider } from '../src/storage/in-memory-object-storage.provider';
 
@@ -24,6 +26,8 @@ const idempotencyKey = (suffix: string) => `pg-${runId}-${suffix}`;
 describe('PostgreSQL HTTP business closure (real database)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let platform: PlatformService;
+  let throttlerStorage: any;
   let tripId: string;
   let fareOrderId: string;
   const storage = new InMemoryObjectStorageProvider();
@@ -34,6 +38,8 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     app = configureHttpApp(moduleRef.createNestApplication());
     await app.init();
     prisma = app.get(PrismaService);
+    platform = app.get(PlatformService);
+    throttlerStorage = app.get(ThrottlerStorage);
     await prisma.$connect();
     await prisma.review.deleteMany({ where: { reviewerId: { in: [creatorId, memberId, outsiderId] } } });
     await prisma.chatMessage.deleteMany({ where: { senderId: { in: [creatorId, memberId, outsiderId] } } });
@@ -44,6 +50,7 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
   });
 
   afterAll(async () => { await prisma?.$disconnect(); await app?.close(); });
+  beforeEach(() => throttlerStorage.storage.clear());
 
   it('creates a trip idempotently and permits a member join', async () => {
     const body = { origin: 'E2E 起点', destination: 'E2E 终点', departTime: new Date(Date.now() + 3_600_000).toISOString(), capacity: 3 };
@@ -117,6 +124,30 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     expect(vehicle.status).toBe(201);
     expect([201, 409]).toContain(ride.status);
     await expect(prisma.trip.findUniqueOrThrow({ where: { id: tripId } })).resolves.toMatchObject({ status: 'RIDE_BOOKED' });
+  });
+
+  it('maps a bounded transaction timeout to a controlled 503 when opening ride assistance', async () => {
+    const transaction = jest.spyOn((platform as any).prisma, '$transaction').mockRejectedValueOnce({ code: 'P2028' });
+
+    try {
+      const response = await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId)
+        .set('Idempotency-Key', idempotencyKey('ride-state-busy')).send({ platform: 'manual' }).expect(503);
+      expect(response.body).toEqual(expect.objectContaining({ message: 'RIDE_STATE_BUSY' }));
+    } finally {
+      transaction.mockRestore();
+    }
+  });
+
+  it('maps a bounded transaction timeout to a controlled 503 when updating vehicle details', async () => {
+    const transaction = jest.spyOn((platform as any).prisma, '$transaction').mockRejectedValueOnce({ code: 'P2024' });
+
+    try {
+      const response = await request(app.getHttpServer()).post(`/api/trips/${tripId}/vehicle`).set('x-user-id', creatorId)
+        .set('Idempotency-Key', idempotencyKey('vehicle-state-busy')).send({ plate: '浙A66666' }).expect(503);
+      expect(response.body).toEqual(expect.objectContaining({ message: 'RIDE_STATE_BUSY' }));
+    } finally {
+      transaction.mockRestore();
+    }
   });
 
   it('enforces member-only chat and client-key retry', async () => {
