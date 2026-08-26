@@ -187,9 +187,10 @@ export class FareService {
         throw new BadRequestException('SCREENSHOT_METADATA_MISMATCH');
       }
 
+      const claimTime = new Date();
       const claimed = await client.objectUpload.updateMany({
-        where: { id: upload.id, claimedAt: null, deletedAt: null },
-        data: { claimedAt: now },
+        where: { id: upload.id, claimedAt: null, deletedAt: null, expiresAt: { gt: claimTime } },
+        data: { claimedAt: claimTime },
       });
       if (claimed.count !== 1) throw new ConflictException('SCREENSHOT_UPLOAD_ALREADY_CLAIMED');
 
@@ -226,14 +227,14 @@ export class FareService {
 
   async cleanupExpiredUploads(now: Date): Promise<number> {
     const candidates = await this.prisma.objectUpload.findMany({
-      where: { expiresAt: { lte: now }, claimedAt: null, deletedAt: null },
+      where: { purpose: 'FARE_SCREENSHOT', expiresAt: { lte: now }, claimedAt: null, deletedAt: null },
     });
     let cleaned = 0;
     for (const candidate of candidates) {
       const removed = await this.tx(async client => {
         if (client.$queryRaw) await client.$queryRaw`SELECT id FROM object_uploads WHERE id = ${candidate.id} FOR UPDATE`;
         const upload = await client.objectUpload.findUnique({ where: { id: candidate.id } });
-        if (!upload || upload.claimedAt || upload.deletedAt || new Date(upload.expiresAt) > now) return false;
+        if (!upload || upload.purpose !== 'FARE_SCREENSHOT' || upload.claimedAt || upload.deletedAt || new Date(upload.expiresAt) > now) return false;
         try {
           await this.storage.deleteObject(upload.objectKey);
         } catch {
@@ -243,7 +244,7 @@ export class FareService {
           return false;
         }
         const updated = await client.objectUpload.updateMany({
-          where: { id: upload.id, claimedAt: null, deletedAt: null }, data: { deletedAt: now },
+          where: { id: upload.id, purpose: 'FARE_SCREENSHOT', claimedAt: null, deletedAt: null }, data: { deletedAt: now },
         });
         return updated.count === 1;
       });

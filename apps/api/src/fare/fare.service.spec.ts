@@ -180,6 +180,30 @@ describe('FareService', () => {
     }) }));
   });
 
+  it('does not claim an upload that expires after its initial check but before atomic consumption', async () => {
+    const activeUpload = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tripId: 't1', ownerId: 'u1',
+      objectKey: 'fare-screenshots/u1/t1/active.png', allowedMimeType: 'image/png',
+      maxSizeBytes: 10 * 1024 * 1024, expiresAt: new Date(Date.now() + 60_000), claimedAt: null,
+    };
+    tx.objectUpload.findUnique.mockResolvedValue(activeUpload);
+    storage.statObject.mockResolvedValue({ key: activeUpload.objectKey, mimeType: 'image/png', sizeBytes: 512 });
+    tx.objectUpload.updateMany.mockImplementation(async ({ where }: any) => ({
+      // Simulate the database observing expiry after the earlier read but at the claim itself.
+      count: where.expiresAt?.gt instanceof Date ? 0 : 1,
+    }));
+
+    await expect(service.createOrder('t1', 'u1', {
+      screenshotUploadId: activeUpload.id, actualTotalFareCents: 1200,
+    } as any)).rejects.toBeInstanceOf(ConflictException);
+
+    expect(storage.statObject).toHaveBeenCalledWith(activeUpload.objectKey);
+    expect(tx.objectUpload.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ expiresAt: { gt: expect.any(Date) } }),
+    }));
+    expect(tx.fareOrder.create).not.toHaveBeenCalled();
+  });
+
   it('rejects expired, claimed, cross-trip, and metadata-mismatched uploads before claiming or writing an order', async () => {
     const activeUpload = {
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tripId: 't1', ownerId: 'u1',
@@ -232,14 +256,33 @@ describe('FareService', () => {
     tx.objectUpload.findMany.mockResolvedValue([{ id: 'expired', objectKey: 'fare-screenshots/u1/t1/expired.png' }]);
     tx.objectUpload.findUnique.mockResolvedValue({
       id: 'expired', tripId: 't1', objectKey: 'fare-screenshots/u1/t1/expired.png',
-      expiresAt: new Date('2026-08-25T23:59:59.000Z'), claimedAt: null, deletedAt: null,
+      purpose: 'FARE_SCREENSHOT', expiresAt: new Date('2026-08-25T23:59:59.000Z'), claimedAt: null, deletedAt: null,
     });
     await expect(service.cleanupExpiredUploads(now)).resolves.toBe(1);
     expect(storage.deleteObject).toHaveBeenCalledWith('fare-screenshots/u1/t1/expired.png');
     expect(tx.objectUpload.updateMany).toHaveBeenLastCalledWith({
-      where: { id: 'expired', claimedAt: null, deletedAt: null }, data: { deletedAt: now },
+      where: { id: 'expired', purpose: 'FARE_SCREENSHOT', claimedAt: null, deletedAt: null }, data: { deletedAt: now },
     });
-    expect(tx.objectUpload.findMany).toHaveBeenCalledWith({ where: { expiresAt: { lte: now }, claimedAt: null, deletedAt: null } });
+    expect(tx.objectUpload.findMany).toHaveBeenCalledWith({
+      where: { purpose: 'FARE_SCREENSHOT', expiresAt: { lte: now }, claimedAt: null, deletedAt: null },
+    });
+  });
+
+  it('does not delete a different-purpose upload that enters cleanup after the fare scan', async () => {
+    const now = new Date('2026-08-26T00:00:00.000Z');
+    tx.objectUpload.findMany.mockResolvedValue([{ id: 'other-upload' }]);
+    tx.objectUpload.findUnique.mockResolvedValue({
+      id: 'other-upload', tripId: 't1', objectKey: 'profile-images/u1/avatar.png', purpose: 'PROFILE_IMAGE',
+      expiresAt: new Date('2026-08-25T23:59:59.000Z'), claimedAt: null, deletedAt: null,
+    });
+
+    await expect(service.cleanupExpiredUploads(now)).resolves.toBe(0);
+
+    expect(tx.objectUpload.findMany).toHaveBeenCalledWith({
+      where: { purpose: 'FARE_SCREENSHOT', expiresAt: { lte: now }, claimedAt: null, deletedAt: null },
+    });
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+    expect(tx.objectUpload.updateMany).not.toHaveBeenCalled();
   });
 
   it('does not mark an upload deleted when object deletion fails', async () => {
@@ -247,7 +290,7 @@ describe('FareService', () => {
     tx.objectUpload.findMany.mockResolvedValue([{ id: 'expired', objectKey: 'fare-screenshots/u1/t1/expired.png' }]);
     tx.objectUpload.findUnique.mockResolvedValue({
       id: 'expired', tripId: 't1', objectKey: 'fare-screenshots/u1/t1/expired.png',
-      expiresAt: new Date('2026-08-25T23:59:59.000Z'), claimedAt: null, deletedAt: null,
+      purpose: 'FARE_SCREENSHOT', expiresAt: new Date('2026-08-25T23:59:59.000Z'), claimedAt: null, deletedAt: null,
     });
     storage.deleteObject.mockRejectedValue(new Error('storage unavailable'));
     await expect(service.cleanupExpiredUploads(now)).resolves.toBe(0);
