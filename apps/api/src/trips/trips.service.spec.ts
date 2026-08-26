@@ -7,11 +7,12 @@ describe('TripsService', () => {
     trip: { create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() },
     tripMember: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn() },
   };
-  const prisma = { user: tx.user, trip: { findMany: jest.fn(), findUnique: jest.fn() }, $transaction: jest.fn((callback: any) => callback(tx)) };
+  const prisma = { user: { findUnique: jest.fn() }, trip: { findMany: jest.fn(), findUnique: jest.fn() }, $transaction: jest.fn((callback: any) => callback(tx)) };
   let service: TripsService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    prisma.user.findUnique.mockResolvedValue({ id: 'root-user', phoneVerified: true, gender: 'FEMALE' });
     service = new TripsService(prisma as any);
   });
 
@@ -39,6 +40,16 @@ describe('TripsService', () => {
     const result = await service.join('u2', 't1', { memberCount: 2 } as any, 'req-1');
     expect(result.memberCount).toBe(2);
     expect(tx.tripMember.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ memberCount: 2 }) }));
+  });
+
+  it('checks phone verification through the transaction before it locks capacity', async () => {
+    tx.user.findUnique.mockResolvedValue({ id: 'u2', phoneVerified: false });
+
+    await expect(service.join('u2', 't1', { memberCount: 1 } as any, 'unverified-key')).rejects.toBeInstanceOf(ForbiddenException);
+
+    expect(tx.user.findUnique).toHaveBeenCalledWith({ where: { id: 'u2' } });
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(tx.trip.findUnique).not.toHaveBeenCalled();
   });
 
   it('filters future trips by time, orders ascending, and suppresses reasons for low-credit creators', async () => {

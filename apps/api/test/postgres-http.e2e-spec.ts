@@ -59,6 +59,35 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     expect(joined.body).not.toEqual(expect.arrayContaining([expect.objectContaining({ role: 'published' })]));
   });
 
+  it('rejects an unverified user from joining before any trip membership is created', async () => {
+    await prisma.user.update({ where: { id: outsiderId }, data: { phoneVerified: false } });
+    await request(app.getHttpServer()).post(`/api/trips/${tripId}/join`).set('x-user-id', outsiderId)
+      .set('Idempotency-Key', idempotencyKey('join-unverified')).send({ memberCount: 1 }).expect(403);
+    await prisma.user.update({ where: { id: outsiderId }, data: { phoneVerified: true } });
+  });
+
+  it('opens ride assistance only for the creator, validates the platform, and preserves the adapter result on retry', async () => {
+    await prisma.trip.update({ where: { id: tripId }, data: { status: 'FORMED' } });
+
+    await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', memberId)
+      .set('Idempotency-Key', idempotencyKey('ride-member')).send({ platform: 'manual' }).expect(403);
+    await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId)
+      .set('Idempotency-Key', idempotencyKey('ride-invalid')).send({ platform: 'unknown' }).expect(400);
+
+    const first = await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId)
+      .set('Idempotency-Key', idempotencyKey('ride-amap')).send({ platform: 'amap' }).expect(201);
+    const retried = await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId)
+      .set('Idempotency-Key', idempotencyKey('ride-amap')).send({ platform: 'amap' }).expect(201);
+
+    expect(first.body.launch).toEqual(expect.objectContaining({ platform: 'amap', fallbackLevel: 'copy-route', copyRouteText: expect.any(String) }));
+    expect(retried.body.launch).toEqual(first.body.launch);
+    await expect(prisma.trip.findUniqueOrThrow({ where: { id: tripId } })).resolves.toMatchObject({ status: 'WAITING_RIDE' });
+
+    await prisma.trip.update({ where: { id: tripId }, data: { status: 'RIDE_BOOKED' } });
+    await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId)
+      .set('Idempotency-Key', idempotencyKey('ride-booked')).send({ platform: 'manual' }).expect(409);
+  });
+
   it('enforces member-only chat and client-key retry', async () => {
     const first = await request(app.getHttpServer()).post(`/api/trips/${tripId}/messages`).set('x-user-id', memberId).set('Idempotency-Key', idempotencyKey('chat')).send({ text: 'E2E 消息' }).expect(201);
     const retried = await request(app.getHttpServer()).post(`/api/trips/${tripId}/messages`).set('x-user-id', memberId).set('Idempotency-Key', idempotencyKey('chat')).send({ text: 'E2E 消息' }).expect(201);
@@ -69,8 +98,8 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
 
   it('keeps vehicle, ride and emergency contact writes idempotent', async () => {
     await prisma.trip.update({ where: { id: tripId }, data: { status: 'FORMED' } });
-    const ride1 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId).set('Idempotency-Key', idempotencyKey('ride')).send({ platform: 'MANUAL' }).expect(201);
-    const ride2 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId).set('Idempotency-Key', idempotencyKey('ride')).send({ platform: 'MANUAL' }).expect(201);
+    const ride1 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId).set('Idempotency-Key', idempotencyKey('ride')).send({ platform: 'manual' }).expect(201);
+    const ride2 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/ride/open`).set('x-user-id', creatorId).set('Idempotency-Key', idempotencyKey('ride')).send({ platform: 'manual' }).expect(201);
     expect(ride2.body.id).toBe(ride1.body.id);
     const vehicle1 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/vehicle`).set('x-user-id', creatorId).set('Idempotency-Key', idempotencyKey('vehicle')).send({ plate: '浙A12345' }).expect(201);
     const vehicle2 = await request(app.getHttpServer()).post(`/api/trips/${tripId}/vehicle`).set('x-user-id', creatorId).set('Idempotency-Key', idempotencyKey('vehicle')).send({ plate: '浙A12345' }).expect(201);

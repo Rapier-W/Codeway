@@ -5,6 +5,7 @@ import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { PlatformService } from './platform.service';
 import { CreateSosEventDto } from './dto/create-sos-event.dto';
 import { CreateEmergencyContactDto } from './dto/create-emergency-contact.dto';
+import { OpenTripRideDto } from './dto/open-trip-ride.dto';
 
 @Controller()
 export class PlatformController {
@@ -24,8 +25,8 @@ export class PlatformController {
   }
 
   @Post('trips/:id/ride/open')
-  openRide(@Param('id') id: string, @CurrentUserId() userId: string, @Body() body: any, @IdempotencyKey(false) idempotencyKey?: string) {
-    return this.service.openRide(id, userId, body.platform, idempotencyKey);
+  openRide(@Param('id') id: string, @CurrentUserId() userId: string, @Body() dto: OpenTripRideDto, @IdempotencyKey(false) idempotencyKey?: string) {
+    return this.service.openRide(id, userId, dto.platform, idempotencyKey);
   }
 
   @Post('trips/:id/vehicle')

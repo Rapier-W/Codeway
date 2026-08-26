@@ -15,7 +15,7 @@ describe('Platform API (e2e)', () => {
   it('exposes auth, ride, fare and SOS routes', async () => {
     await request(app.getHttpServer()).post('/api/auth/dev-login').send({ phone: '13800000000' }).expect(201);
     await request(app.getHttpServer()).post('/api/auth/phone').set('x-user-id', 'u1').send({ phone: '13800000000' }).expect(201);
-    await request(app.getHttpServer()).post('/api/trips/t1/ride/open').set('x-user-id', 'u1').send({ platform: 'GAODE' }).expect(201);
+    await request(app.getHttpServer()).post('/api/trips/t1/ride/open').set('x-user-id', 'u1').send({ platform: 'amap' }).expect(201);
     await request(app.getHttpServer()).post('/api/trips/t1/sos').set('x-user-id', 'u1').set('Idempotency-Key', 'sos-e2e-key').send({ latitude: 0, longitude: 0 }).expect(201);
   });
 
