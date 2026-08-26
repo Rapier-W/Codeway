@@ -1,10 +1,11 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { TripStatus } from '../trips/trip-status';
+import { RideService } from '../ride/ride.service';
 
 @Injectable()
 export class PlatformService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly ride: RideService = new RideService()) {}
   private tx<T>(fn: (tx: any) => Promise<T>) { return this.prisma.$transaction(fn); }
   private userId(value: string) { if (!value) throw new ForbiddenException('AUTH_REQUIRED'); return value; }
 
@@ -31,10 +32,12 @@ export class PlatformService {
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_OPEN_RIDE');
       if (trip.status !== 'FORMED' && trip.status !== 'WAITING_RIDE') throw new ConflictException('TRIP_NOT_READY_FOR_RIDE');
       const existing = tx.rideRecord?.findUnique ? await tx.rideRecord.findUnique({ where: { requestKey } }) : null;
-      if (existing) { if (existing.tripId !== tripId || existing.requestedBy !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED'); return { ...existing, duplicate: true, launch: { supported: false, copyRouteRequired: true } }; }
-      const record = await tx.rideRecord.create({ data: { tripId, requestedBy: userId, platform, requestKey, mode: 'MANUAL_FALLBACK', status: 'WAITING_RIDE' } });
+      if (existing) { if (existing.tripId !== tripId || existing.requestedBy !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED'); const launch = this.ride.openRide({ origin: trip.origin, destination: trip.destination, departureAt: trip.departTime ? trip.departTime.toISOString() : undefined, platform }); return { ...existing, duplicate: true, launch }; }
+      const record = await tx.rideRecord.create({ data: { tripId, requestedBy: userId, platform, requestKey, mode: 'ADAPTER', status: 'WAITING_RIDE' } });
       await tx.trip.update({ where: { id: tripId }, data: { status: 'WAITING_RIDE' } });
-      return { ...record, launch: { supported: false, copyRouteRequired: true } };
+      // 调叫车适配器生成跳转链接或降级路线，替代此前硬编码的 { supported: false } 降级。
+      const launch = this.ride.openRide({ origin: trip.origin, destination: trip.destination, departureAt: trip.departTime ? trip.departTime.toISOString() : undefined, platform });
+      return { ...record, duplicate: false, launch };
     });
   }
   async updateVehicle(tripId: string, userId: string, data: any, requestKey = `vehicle-${tripId}-${userId}`) {
