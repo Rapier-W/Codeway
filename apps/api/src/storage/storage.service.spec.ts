@@ -3,7 +3,7 @@ import { KodoObjectStorageProvider } from './kodo-object-storage.provider';
 import { createObjectStorageProvider } from './storage.module';
 
 describe('InMemoryObjectStorageProvider', () => {
-  const expiresAt = new Date('2026-08-26T10:00:00.000Z');
+  const expiresAt = new Date('2099-08-26T10:00:00.000Z');
 
   it('creates a single-key grant and does not expose secrets', async () => {
     const provider = new InMemoryObjectStorageProvider(() => new Date('2026-08-26T09:00:00.000Z'));
@@ -22,11 +22,12 @@ describe('InMemoryObjectStorageProvider', () => {
 
   it('rejects expired grants and deletes missing objects idempotently', async () => {
     const provider = new InMemoryObjectStorageProvider(() => new Date('2026-08-26T10:00:01.000Z'));
+    const expiredAt = new Date('2026-08-26T10:00:00.000Z');
     const expiredGrant = await provider.createUploadGrant({
       key: 'fare-screenshots/u1/t1/a.png',
       mimeType: 'image/png',
       maxSizeBytes: 1024,
-      expiresAt,
+      expiresAt: expiredAt,
     });
     const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 
@@ -48,7 +49,7 @@ describe('InMemoryObjectStorageProvider', () => {
 });
 
 describe('storage provider configuration', () => {
-  const expiresAt = new Date('2026-08-26T10:00:00.000Z');
+  const expiresAt = new Date('2099-08-26T10:00:00.000Z');
   const completeConfig = {
     QINIU_KODO_BUCKET: 'private-bucket',
     QINIU_KODO_UPLOAD_HOST: 'https://upload.example.test',
