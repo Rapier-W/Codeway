@@ -29,8 +29,10 @@ export const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
-  if (!to.meta.requiresAuth || useSessionStore().user) return true
+router.beforeEach(async (to) => {
+  const session = useSessionStore()
+  if (import.meta.env.VITE_API_MODE === 'http' && !session.user) await session.restore()
+  if (!to.meta.requiresAuth || session.user) return true
   const path = `${to.path}${to.query && Object.keys(to.query).length ? `?${new URLSearchParams(to.query as Record<string, string>).toString()}` : ''}`
   const redirect = path.startsWith('/') && !path.startsWith('//') && !path.startsWith('/\\') ? path : '/trips'
   return { name: 'login', query: { redirect } }

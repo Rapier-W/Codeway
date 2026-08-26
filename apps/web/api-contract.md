@@ -4,7 +4,7 @@
 
 - 前端基础地址由 `VITE_API_BASE_URL` 提供，默认 `/api`。
 - 所有写操作携带 `Idempotency-Key`，认证 Cookie 使用 `credentials: include`。
-- 当前后端开发会话使用 `x-user-id` 头；这只是开发占位，生产必须替换为 HttpOnly 会话。
+- 当前后端支持 HttpOnly Session Cookie；`x-user-id` 仅在非生产开发环境作为兼容回退，生产环境必须使用 Cookie 会话。
 - 客户端不保存 token、手机号原文、SOS 精确位置或订单截图。
 
 ## 已实现行程接口
@@ -48,13 +48,30 @@
 | POST | `/reports` | 举报 |
 | POST | `/analytics/events` | 埋点和推荐决策记录 |
 
-## 尚未接入真实供应商
+## 认证接口
 
-- 七牛云短信：当前没有真实验证码发送。
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/auth/request-code` | 手机号验证码请求；服务端限流，开发无七牛云密钥时仅输出开发日志 |
+| POST | `/auth/verify-code` | 校验验证码并设置 HttpOnly Session Cookie |
+| GET | `/auth/me` | 根据 Session Cookie 获取当前用户 |
+| POST | `/auth/logout` | 删除 Session 并清理 Cookie |
+
+Web 请求统一使用 `credentials: include`。真实 HTTP 默认走短信验证码，只有 `VITE_ENABLE_DEV_LOGIN=true` 才启用开发登录降级。
+
+## 尚未完成的真实供应商核验
+
+- 七牛云短信：服务端适配已完成，但签名、接口路径和模板参数仍需真实供应商文档/测试凭据核验。
 - 微信登录/手机号授权：当前使用开发会话占位。
 - Kodo：费用接口只接受对象键元数据，上传签名尚未接入。
 - 高德和第三方叫车 Deep Link：当前走手动降级。
 - WebSocket：聊天仍是 REST 边界，未做实时推送。
+
+## 移动端字体兼容
+
+- 保留本地 `base.css` 的视觉 token 和字体栈；当前字体为 `Inter`、系统字体及 `Microsoft YaHei`、`PingFang SC`、`Noto Sans CJK SC` 中文回退。
+- 不引入远端字体文件、`@font-face` 或外部字体 CDN，避免移动端字体加载失败。
+- 生产构建已检查源码和产物，无外部字体 URL 或字体文件引用。
 
 ## 错误格式
 

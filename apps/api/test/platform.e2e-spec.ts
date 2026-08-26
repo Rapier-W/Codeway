@@ -13,6 +13,7 @@ describe('Platform API (e2e)', () => {
   });
   afterAll(async () => app.close());
   it('exposes auth, ride, fare and SOS routes', async () => {
+    await request(app.getHttpServer()).post('/api/auth/dev-login').send({ phone: '13800000000' }).expect(201);
     await request(app.getHttpServer()).post('/api/auth/phone').set('x-user-id', 'u1').send({ phone: '13800000000' }).expect(201);
     await request(app.getHttpServer()).post('/api/trips/t1/ride/open').set('x-user-id', 'u1').send({ platform: 'GAODE' }).expect(201);
     await request(app.getHttpServer()).post('/api/trips/t1/sos').set('x-user-id', 'u1').set('Idempotency-Key', 'sos-e2e-key').send({ latitude: 0, longitude: 0 }).expect(201);
@@ -20,8 +21,11 @@ describe('Platform API (e2e)', () => {
 
   it('does not trust the development identity header in production', async () => {
     const prior = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    await request(app.getHttpServer()).post('/api/auth/phone').set('x-user-id', 'u1').send({ phone: '13800000000' }).expect(403);
-    process.env.NODE_ENV = prior;
+    try {
+      process.env.NODE_ENV = 'production';
+      await request(app.getHttpServer()).post('/api/auth/phone').set('x-user-id', 'u1').send({ phone: '13800000000' }).expect(401);
+    } finally {
+      process.env.NODE_ENV = prior;
+    }
   });
 });

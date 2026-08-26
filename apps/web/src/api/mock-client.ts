@@ -22,6 +22,8 @@ export class MockApiClient implements ApiClient {
     this.failures = options.failures ?? {}
   }
 
+  async getCurrentUser(): Promise<SessionUser | null> { return null }
+
   async requestCode(_phone: string, _idempotencyKey: string): Promise<void> {}
 
   async verifyCode(_phone: string, code: string, _idempotencyKey: string): Promise<SessionUser> {

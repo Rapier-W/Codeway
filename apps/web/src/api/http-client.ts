@@ -6,6 +6,16 @@ export class HttpApiClient implements ApiClient {
   static currentUserId: string | null = null
 
   constructor(private readonly baseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api') {}
+  async getCurrentUser(): Promise<SessionUser | null> {
+    try {
+      const user = await this.request<SessionUser>('/auth/me')
+      HttpApiClient.currentUserId = user.id
+      return user
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) return null
+      throw error
+    }
+  }
   requestCode(phone: string, idempotencyKey: string) { return this.write<void>('/auth/request-code', { phone }, idempotencyKey) }
   async verifyCode(phone: string, code: string, idempotencyKey: string) {
     const user = await this.write<SessionUser>('/auth/verify-code', { phone, code }, idempotencyKey)
