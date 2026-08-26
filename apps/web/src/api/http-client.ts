@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type ChatMessage, type Order, type ReviewInput, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
+import { ApiError, type ApiClient, type CreateTripInput, type FareScreenshotUpload, type FareScreenshotView, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type ChatMessage, type Order, type ReviewInput, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
 import { resolveErrorMessage } from './error-messages'
 
 export class HttpApiClient implements ApiClient {
@@ -67,6 +67,25 @@ export class HttpApiClient implements ApiClient {
   confirmFareOrder(orderId: string, idempotencyKey: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/confirm`, {}, idempotencyKey) }
   disputeFareOrder(orderId: string, reason: string, idempotencyKey: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/dispute`, { reason }, idempotencyKey) }
   markPayment(orderId: string, amountCents: number | undefined, idempotencyKey: string) { return this.write(`/fare-orders/${encodeURIComponent(orderId)}/payment-mark`, amountCents === undefined ? {} : { amountCents }, idempotencyKey) }
+  createFareScreenshotUpload(tripId: string, file: File, idempotencyKey: string) {
+    return this.write<FareScreenshotUpload>(`/trips/${encodeURIComponent(tripId)}/fare-screenshot-uploads`, { mimeType: file.type, sizeBytes: file.size }, idempotencyKey)
+  }
+  async uploadFareScreenshot(upload: FareScreenshotUpload, file: File): Promise<void> {
+    const body = new FormData()
+    body.append('token', upload.uploadToken)
+    body.append('file', file)
+    let response: Response
+    try {
+      response = await fetch(upload.uploadUrl, { method: 'POST', body, credentials: 'omit' })
+    } catch {
+      throw new ApiError('FARE_SCREENSHOT_UPLOAD_FAILED', '截图上传失败，请重试', 0)
+    }
+    if (!response.ok) throw new ApiError('FARE_SCREENSHOT_UPLOAD_FAILED', '截图上传失败，请重试', response.status)
+  }
+  createFareOrder(tripId: string, screenshotUploadId: string, actualTotalFareCents: number, idempotencyKey: string) {
+    return this.write(`/trips/${encodeURIComponent(tripId)}/fare-order`, { screenshotUploadId, actualTotalFareCents }, idempotencyKey)
+  }
+  getFareScreenshotUrl(orderId: string) { return this.request<FareScreenshotView>(`/fare-orders/${encodeURIComponent(orderId)}/screenshot`) }
   updateVehicleWithKey(tripId: string, input: Vehicle, idempotencyKey: string) { return this.write(`/trips/${encodeURIComponent(tripId)}/vehicle`, input, idempotencyKey) }
   openRideWithKey(tripId: string, platform: string, idempotencyKey: string) { return this.write(`/trips/${encodeURIComponent(tripId)}/ride/open`, { platform }, idempotencyKey) }
   addEmergencyContactWithKey(input: EmergencyContact, idempotencyKey: string) { return this.write('/emergency-contacts', input, idempotencyKey) }

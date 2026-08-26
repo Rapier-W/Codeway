@@ -48,6 +48,8 @@ export interface CostShare { mode: 'EQUAL'|'FIXED'|'CUSTOM'; amountCents: number
 export interface Vehicle { plate: string; model?: string; color?: string }
 export interface RideLaunch { launch: { supported: boolean; copyRouteRequired: boolean }; status?: string }
 export interface Order { id: string; tripId: string; status?: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare; totalAmountCents?: number; members?: TripMember[] }
+export interface FareScreenshotUpload { uploadId: string; objectKey: string; uploadUrl: string; uploadToken: string; expiresAt: string }
+export interface FareScreenshotView { url: string; expiresAt: string }
 export interface EmergencyContact { id?: string; name: string; phone: string }
 export interface ReviewInput { fareOrderId: string; targetUserId: string; dimensions: { punctuality:number; communication:number; safety:number; fairness:number }; comment?: string; anonymous: boolean }
 
@@ -76,6 +78,10 @@ export interface ApiClient {
   confirmFareOrder(orderId: string, idempotencyKey: string): Promise<unknown>
   disputeFareOrder(orderId: string, reason: string, idempotencyKey: string): Promise<unknown>
   markPayment(orderId: string, amountCents: number | undefined, idempotencyKey: string): Promise<unknown>
+  createFareScreenshotUpload(tripId: string, file: File, idempotencyKey: string): Promise<FareScreenshotUpload>
+  uploadFareScreenshot(upload: FareScreenshotUpload, file: File): Promise<void>
+  createFareOrder(tripId: string, screenshotUploadId: string, actualTotalFareCents: number, idempotencyKey: string): Promise<unknown>
+  getFareScreenshotUrl(orderId: string): Promise<FareScreenshotView>
   updateVehicleWithKey(tripId: string, input: Vehicle, idempotencyKey: string): Promise<unknown>
   openRideWithKey(tripId: string, platform: string, idempotencyKey: string): Promise<unknown>
   addEmergencyContactWithKey(input: EmergencyContact, idempotencyKey: string): Promise<unknown>

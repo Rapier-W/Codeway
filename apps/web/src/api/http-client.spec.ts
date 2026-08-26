@@ -82,4 +82,47 @@ describe('HttpApiClient', () => {
       return Boolean(headers?.['Idempotency-Key'])
     })).toBe(true)
   })
+
+  it('creates an upload intent, uploads the file without app auth, then submits only uploadId', async () => {
+    const responses = [
+      { status: 201, body: { uploadId: 'upload-1', objectKey: 'fare-screenshots/u1/t1/receipt.png', uploadUrl: 'https://upload.example.test', uploadToken: 'grant-token', expiresAt: '2026-08-26T10:10:00.000Z' } },
+      { status: 200, body: {} },
+      { status: 201, body: { id: 'order-1' } },
+    ]
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      const next = responses.shift()!
+      return new Response(JSON.stringify(next.body), { status: next.status, headers: { 'Content-Type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    HttpApiClient.currentUserId = 'user-1'
+    const client = new HttpApiClient('http://api.test')
+    const file = new File(['png'], 'receipt.png', { type: 'image/png' })
+
+    const upload = await client.createFareScreenshotUpload('trip-1', file, 'intent-key')
+    await client.uploadFareScreenshot(upload, file)
+    await client.createFareOrder('trip-1', upload.uploadId, 1200, 'order-key')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, 'http://api.test/trips/trip-1/fare-screenshot-uploads', expect.objectContaining({
+      headers: expect.objectContaining({ 'x-user-id': 'user-1', 'Idempotency-Key': 'intent-key' }),
+      body: JSON.stringify({ mimeType: 'image/png', sizeBytes: file.size }),
+    }))
+    const directUpload = fetchMock.mock.calls[1][1] as RequestInit
+    expect(fetchMock).toHaveBeenNthCalledWith(2, 'https://upload.example.test', expect.objectContaining({ method: 'POST', body: expect.any(FormData), credentials: 'omit' }))
+    expect(directUpload.headers).toBeUndefined()
+    const formData = directUpload.body as FormData
+    expect(formData.get('token')).toBe('grant-token')
+    expect(formData.get('file')).toBe(file)
+    expect(fetchMock).toHaveBeenNthCalledWith(3, 'http://api.test/trips/trip-1/fare-order', expect.objectContaining({
+      body: JSON.stringify({ screenshotUploadId: 'upload-1', actualTotalFareCents: 1200 }),
+    }))
+    HttpApiClient.currentUserId = null
+  })
+
+  it('requests a private screenshot URL only when asked', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ url: 'https://private.example.test/short-lived', expiresAt: '2026-08-26T10:01:00.000Z' }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(new HttpApiClient('http://api.test').getFareScreenshotUrl('order-1')).resolves.toMatchObject({ expiresAt: '2026-08-26T10:01:00.000Z' })
+    expect(fetchMock).toHaveBeenCalledWith('http://api.test/fare-orders/order-1/screenshot', expect.anything())
+  })
 })

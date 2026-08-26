@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient, type CreateTripInput, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
+import { ApiError, type ApiClient, type CreateTripInput, type FareScreenshotUpload, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
 
 const sampleTrips: Trip[] = [
   { id: 'trip-1', origin: '大学城南门', destination: '火车站', departureAt: '2026-08-25T20:00:00+08:00', capacity: 4, activeMemberCount: 1, status: 'RECRUITING', recommendationReasons: ['TIME_CLOSE', 'VERIFIED', 'AVAILABLE'] },
@@ -98,6 +98,12 @@ export class MockApiClient implements ApiClient {
   async confirmFareOrder(_orderId: string, _key: string) { return { locked: false, duplicate: false } }
   async disputeFareOrder(_orderId: string, _reason: string, _key: string) { return { locked: true, duplicate: false } }
   async markPayment(_orderId: string, _amount: number | undefined, _key: string) { return { locked: false, duplicate: false } }
+  async createFareScreenshotUpload(tripId: string, file: File, _idempotencyKey: string): Promise<FareScreenshotUpload> {
+    return { uploadId: `upload-${Date.now()}`, objectKey: `fare-screenshots/mock/${tripId}/${file.name}`, uploadUrl: 'mock://fare-screenshot-upload', uploadToken: 'mock-upload-token', expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() }
+  }
+  async uploadFareScreenshot(_upload: FareScreenshotUpload, _file: File): Promise<void> {}
+  async createFareOrder(_tripId: string, _screenshotUploadId: string, _actualTotalFareCents: number, _idempotencyKey: string): Promise<unknown> { return { id: 'fare-order-1' } }
+  async getFareScreenshotUrl(_orderId: string) { return { url: 'https://example.invalid/mock-private-fare-screenshot', expiresAt: new Date(Date.now() + 60 * 1000).toISOString() } }
   async updateVehicle(_tripId: string, _input: Vehicle, _key?: string) {}
   async openRide(_tripId: string, _platform: string, _key?: string) {}
   async addEmergencyContact(_input: EmergencyContact, _key?: string) {}
