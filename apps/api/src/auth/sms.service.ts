@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma.service';
 
@@ -34,6 +34,9 @@ export class SmsService {
   async sendCode(phone: string, requestIp?: string): Promise<void> {
     phone = this.normalizePhone(phone);
     if (!/^1\d{10}$/.test(phone)) throw new BadRequestException('INVALID_PHONE');
+    if (process.env.NODE_ENV === 'production' && this.isDevMode) {
+      throw new ServiceUnavailableException('SMS_PROVIDER_NOT_CONFIGURED');
+    }
 
     // Replay protection: check for existing pending code within cooldown
     const recent = await this.prisma.smsCode?.findFirst({

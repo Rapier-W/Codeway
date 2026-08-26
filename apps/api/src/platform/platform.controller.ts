@@ -1,4 +1,5 @@
 import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Public } from '../auth/public.decorator';
 import { CurrentUserId } from '../common/current-user.decorator';
 import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { PlatformService } from './platform.service';
@@ -16,6 +17,7 @@ export class PlatformController {
 
   // 开发联调占位：Task 3 专用，用任意手机号换取一个 userId，无需验证码。
   // service 内已有 NODE_ENV=production 守卫；Task 5 接入真实会话后必须删除。
+  @Public()
   @Post('auth/dev-login')
   devLogin(@Body() body: any) {
     return this.service.devLogin(String(body?.phone ?? 'dev-user'));

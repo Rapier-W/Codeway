@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { SmsService } from './sms.service';
 
 describe('SmsService', () => {
@@ -31,6 +31,17 @@ describe('SmsService', () => {
       createdAt: new Date(Date.now() - 30_000),
     });
     await expect(service.sendCode('13800000000', '127.0.0.1')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('fails closed in production when Qiniu credentials are missing', async () => {
+    const prior = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'production';
+      await expect(service.sendCode('13800000000', '127.0.0.1')).rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(prisma.smsCode.create).not.toHaveBeenCalled();
+    } finally {
+      process.env.NODE_ENV = prior;
+    }
   });
 
   it('rejects when daily limit is exceeded', async () => {
