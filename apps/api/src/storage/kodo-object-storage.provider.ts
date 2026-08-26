@@ -1,7 +1,7 @@
 import * as qiniu from 'qiniu';
 import { ObjectMetadata, ObjectStorageProvider, UploadGrant } from './object-storage.provider';
 
-type KodoConfig = { bucket: string; uploadHost: string; accessKey: string; secretKey: string };
+type KodoConfig = { bucket: string; uploadHost: string; downloadHost: string; accessKey: string; secretKey: string };
 
 export class KodoObjectStorageProvider implements ObjectStorageProvider {
   private readonly mac: qiniu.auth.digest.Mac;
@@ -30,7 +30,7 @@ export class KodoObjectStorageProvider implements ObjectStorageProvider {
   }
 
   async createPrivateDownloadUrl(key: string, expiresInSeconds: number): Promise<string> {
-    return this.bucketManager.privateDownloadUrl(this.config.uploadHost, key, Math.floor(Date.now() / 1000) + expiresInSeconds);
+    return this.bucketManager.privateDownloadUrl(this.config.downloadHost, key, Math.floor(Date.now() / 1000) + expiresInSeconds);
   }
 
   async deleteObject(key: string): Promise<void> {
