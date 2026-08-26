@@ -97,4 +97,14 @@ describe('storage provider configuration', () => {
     await expect(provider.putForTest({ ...grant, objectKey: 'fare-screenshots/u1/t1/forged.png' }, Buffer.alloc(4), 'image/png'))
       .rejects.toThrow('UPLOAD_GRANT_INVALID');
   });
+
+  it('rejects a second in-memory upload for an existing object key', async () => {
+    const provider = new InMemoryObjectStorageProvider();
+    const grant = await provider.createUploadGrant({
+      key: 'fare-screenshots/u1/t1/a.png', mimeType: 'image/png', maxSizeBytes: 4, expiresAt,
+    });
+
+    await provider.putForTest(grant, Buffer.alloc(4), 'image/png');
+    await expect(provider.putForTest(grant, Buffer.alloc(4), 'image/png')).rejects.toThrow('UPLOAD_OBJECT_ALREADY_EXISTS');
+  });
 });

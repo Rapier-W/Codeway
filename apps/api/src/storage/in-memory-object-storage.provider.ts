@@ -20,6 +20,7 @@ export class InMemoryObjectStorageProvider implements ObjectStorageProvider {
     if (!constraints || constraints.objectKey !== grant.objectKey || constraints.expiresAt.getTime() !== grant.expiresAt.getTime()) throw new Error('UPLOAD_GRANT_INVALID');
     if (bytes.length > constraints.maxSizeBytes) throw new Error('UPLOAD_TOO_LARGE');
     if (mimeType !== constraints.mimeType) throw new Error('UPLOAD_MIME_TYPE_NOT_ALLOWED');
+    if (this.objects.has(grant.objectKey)) throw new Error('UPLOAD_OBJECT_ALREADY_EXISTS');
     this.objects.set(grant.objectKey, { key: grant.objectKey, mimeType, sizeBytes: bytes.length });
   }
 
