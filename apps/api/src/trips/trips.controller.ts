@@ -8,6 +8,7 @@ import { ListTripsDto } from './dto/list-trips.dto';
 import { ListMyTripsDto } from './dto/list-my-trips.dto';
 import { TripsService } from './trips.service';
 import { ConfirmationService } from './confirmation.service';
+import { Public } from '../auth/public.decorator';
 
 @Controller('trips')
 export class TripsController {

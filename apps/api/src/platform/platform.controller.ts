@@ -2,6 +2,7 @@ import { Body, Controller, Param, Post } from '@nestjs/common';
 import { Public } from '../auth/public.decorator';
 import { CurrentUserId } from '../common/current-user.decorator';
 import { IdempotencyKey } from '../common/idempotency-key.decorator';
+import { Public } from '../auth/public.decorator';
 import { PlatformService } from './platform.service';
 import { CreateSosEventDto } from './dto/create-sos-event.dto';
 import { CreateEmergencyContactDto } from './dto/create-emergency-contact.dto';
