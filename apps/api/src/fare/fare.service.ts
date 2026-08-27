@@ -159,9 +159,15 @@ export class FareService {
     });
   }
 
-  async createOrder(tripId: string, userId: string, dto: CreateFareOrderDto) {
+  async createOrder(tripId: string, userId: string, dto: CreateFareOrderDto, idempotencyKey?: string) {
     this.validateImage(dto);
+    if (idempotencyKey === '') throw new BadRequestException('IDEMPOTENCY_KEY_REQUIRED');
     return this.tx(async client => {
+      const prior = idempotencyKey ? await client.fareOrder.findUnique({ where: { requestKey: idempotencyKey } }) : null;
+      if (prior) {
+        if (prior.tripId !== tripId || prior.submittedBy !== userId || prior.totalAmountCents !== Number(dto.actualTotalFareCents) || prior.sourceUploadId !== dto.screenshotUploadId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+        return { fareOrder: prior, duplicate: true, locked: false };
+      }
       const trip = await this.lockTrip(client, tripId);
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_SUBMIT_ORDER');
       if (trip.disputeLocked || trip.status === 'ORDER_DISPUTED') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
@@ -202,17 +208,22 @@ export class FareService {
       const existing = await client.fareOrder.findUnique({ where: { tripId } });
       let order: any;
       if (existing) {
-        if (existing.status === 'DISPUTED') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
-        if (client.fareOrderConfirmation?.deleteMany) await client.fareOrderConfirmation.deleteMany({ where: { fareOrderId: existing.id } });
-        if (client.paymentMark?.deleteMany) await client.paymentMark.deleteMany({ where: { fareOrderId: existing.id } });
-        order = await client.fareOrder.update({ where: { id: existing.id }, data });
-      } else order = await client.fareOrder.create({ data });
+        throw new ConflictException(existing.status === 'DISPUTED' ? 'FARE_SETTLEMENT_LOCKED' : 'FARE_ORDER_ALREADY_SUBMITTED');
+      }
+      try {
+        order = await client.fareOrder.create({ data: { ...data, requestKey: idempotencyKey ?? null, sourceUploadId: idempotencyKey ? dto.screenshotUploadId : null } });
+      } catch (error: any) {
+        if (error?.code !== 'P2002') throw error;
+        const raced = idempotencyKey ? await client.fareOrder.findUnique({ where: { requestKey: idempotencyKey } }) : null;
+        if (!raced || raced.tripId !== tripId || raced.submittedBy !== userId || raced.totalAmountCents !== Number(dto.actualTotalFareCents) || raced.sourceUploadId !== dto.screenshotUploadId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+        order = raced;
+      }
       if (trip.status === TripStatus.RIDE_BOOKED) {
         if (!canTransition(trip.status, TripStatus.PENDING_SETTLEMENT)) throw new ConflictException('INVALID_TRIP_TRANSITION');
         await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_SETTLEMENT, disputeLocked: false, version: { increment: 1 } } });
       }
       await this.audit(client, tripId, userId, 'fare-order-submit', { fareOrderId: order.id, totalAmountCents: order.totalAmountCents });
-      return { fareOrder: order, overwritten: Boolean(existing), locked: false };
+      return { fareOrder: order, duplicate: false, locked: false };
     });
   }
 
@@ -220,6 +231,7 @@ export class FareService {
     const order = await this.prisma.fareOrder.findUnique({ where: { id: fareOrderId } });
     if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
     await this.membership(this.prisma, order.tripId, userId);
+    if ((order as any).screenshotDeletedAt) throw new ConflictException('SCREENSHOT_RETENTION_EXPIRED');
     const expiresInSeconds = 60;
     const url = await this.storage.createPrivateDownloadUrl(order.screenshotKey, expiresInSeconds);
     return { url, expiresAt: new Date(Date.now() + expiresInSeconds * 1000).toISOString() };

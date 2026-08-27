@@ -159,3 +159,12 @@
 - 范围：费用订单真正消费 `Idempotency-Key` 且不可覆盖；成团后费用变更申请、全员同意、旧确认作废与重新锁定；短信日志脱敏；截图 90 天留存/争议结案重计时；PostgreSQL E2E run-scoped 清理；真实数据库锁竞争和 `503 RIDE_STATE_BUSY` 验证。
 - 设计复核：独立只读复核确认现有覆盖订单实现不可接受；必须新增持久化边界、成员快照和真实锁超时证据。尚未修改业务代码。
 - 下一步：用户选择 subagent-driven 或 inline execution；选择后创建 `codex/preproduction-closure` 隔离 worktree，先运行基线，再按 Task 1–7 TDD 实施。
+
+## REMOTE-ABSORB-20260827-01 远端功能吸收（本地优先）
+
+- 状态：**已完成本地集成，待推送远端**。
+- 远端基线：`origin/master` 从 `413e0ea` 更新至 `211f2a1`，包含费用订单幂等、手机号脱敏和 Web 推荐免责文案。
+- 本地策略：保留本地设计/计划及协同文件；吸收费用订单 `requestKey` 字段与 migration、订单 controller 请求键、幂等单测；将实现收紧为请求键重用校验、上传意图绑定、同一行程订单禁止覆盖；短信日志不输出验证码、完整手机号或供应商正文。
+- 数据库：已在本机 PostgreSQL `localhost:5433/tongluxing` 成功部署 `20260826231800_add_fare_order_request_key`，同时增加 `source_upload_id` 唯一字段。
+- 验证：API `npm test -- --runInBand` 18 suites/97 tests 通过；`npm run build`、`npx prisma generate`、`npx prisma validate`、`npx prisma migrate deploy` 通过；Web `npm run typecheck` 通过。Web PWA build 在受限沙箱中被 esbuild 路径权限阻断，尚未在沙箱外重跑。
+- 剩余风险：远端短信实现原本仍会记录验证码/供应商正文，已按本地安全规格修正；Web 免责文案尚未成功逐行吸收，需下一轮前端文件变更时补齐。费用方案变更、截图 90 天留存、E2E fixture 隔离与真实锁竞争仍按 `PREPROD-20260826-01` 计划未实现。

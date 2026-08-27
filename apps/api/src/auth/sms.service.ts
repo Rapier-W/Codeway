@@ -26,6 +26,11 @@ export class SmsService {
       .replace(/^\+?86/, '');
   }
 
+  private maskPhone(phone: string): string {
+    const normalized = this.normalizePhone(phone);
+    return normalized.length <= 7 ? '*'.repeat(normalized.length) : `${normalized.slice(0, 3)}****${normalized.slice(-4)}`;
+  }
+
   /**
    * Send a verification code to the given phone.
    * Implements: rate limiting (60s cooldown, 5/day), expiry (5min), replay
@@ -69,8 +74,8 @@ export class SmsService {
     });
 
     if (this.isDevMode) {
-      // Dev mode: log the code instead of sending SMS
-      console.log(`[DEV SMS] phone=${phone} code=${code}`);
+      // Never log verification codes or full phone numbers.
+      console.log(`[DEV SMS] phone=${this.maskPhone(phone)} provider=dev`);
       return;
     }
 
@@ -181,8 +186,7 @@ export class SmsService {
     });
 
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      console.error(`[Qiniu SMS] phone=${phone} status=${response.status} body=${text}`);
+      console.error(`[Qiniu SMS] phone=${this.maskPhone(phone)} status=${response.status} error=SMS_SEND_FAILED`);
       throw new ConflictException('SMS_SEND_FAILED');
     }
   }

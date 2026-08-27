@@ -13,8 +13,8 @@ export class FareController {
   constructor(private readonly fare: FareService) {}
 
   @Post('trips/:id/fare-order')
-  create(@Param('id') id: string, @CurrentUserId() userId: string, @Body() dto: CreateFareOrderDto) {
-    return this.fare.createOrder(id, userId, dto);
+  create(@Param('id') id: string, @CurrentUserId() userId: string, @Body() dto: CreateFareOrderDto, @IdempotencyKey() idempotencyKey: string) {
+    return this.fare.createOrder(id, userId, dto, idempotencyKey);
   }
 
   @Post('trips/:id/fare-screenshot-uploads')
