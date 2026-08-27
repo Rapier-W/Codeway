@@ -296,4 +296,36 @@ describe('FareService', () => {
     await expect(service.cleanupExpiredUploads(now)).resolves.toBe(0);
     expect(tx.objectUpload.updateMany).not.toHaveBeenCalled();
   });
+
+  // 阶段 1 完成标准：不同键不可覆盖已确认订单
+  it('does not overwrite an existing order with a different idempotency key', async () => {
+    const activeUpload = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tripId: 't1', ownerId: 'u1',
+      objectKey: 'fare-screenshots/u1/t1/exist.png', allowedMimeType: 'image/png',
+      maxSizeBytes: 10 * 1024 * 1024, expiresAt: new Date(Date.now() + 60_000), claimedAt: null,
+    };
+    tx.objectUpload.findUnique.mockResolvedValue(activeUpload);
+    storage.statObject.mockResolvedValue({ key: activeUpload.objectKey, mimeType: 'image/png', sizeBytes: 512 });
+
+    // 按 where 条件区分：requestKey 查询返回 null（没用过），tripId 查询控制是否已有订单
+    const existingOrder = { id: 'fo-existing', tripId: 't1', status: 'PENDING_CONFIRMATION', totalAmountCents: 1200 };
+    let tripIdQueryCount = 0;
+    tx.fareOrder.findUnique.mockImplementation(async ({ where }: any) => {
+      if (where.requestKey) return null; // requestKey 查不到（每次都用新键）
+      if (where.tripId) { tripIdQueryCount++; return tripIdQueryCount === 1 ? null : existingOrder; }
+      return null;
+    });
+    tx.fareOrder.create.mockImplementation(async ({ data }: any) => ({ id: 'fo-existing', ...data }));
+
+    // 第一次请求键 'key-a'：tripId 查不到已有订单 → 创建成功
+    await service.createOrder('t1', 'u1', { screenshotUploadId: activeUpload.id, actualTotalFareCents: 1200 } as any, 'key-a');
+
+    // 第二次请求用不同键 'key-b'：tripId 查到了已存在订单 → 拒绝
+    await expect(
+      service.createOrder('t1', 'u1', { screenshotUploadId: activeUpload.id, actualTotalFareCents: 1300 } as any, 'key-b')
+    ).rejects.toThrow('FARE_ORDER_ALREADY_SUBMITTED');
+
+    // 确认只创建了一张订单
+    expect(tx.fareOrder.create).toHaveBeenCalledTimes(1);
+  });
 });
