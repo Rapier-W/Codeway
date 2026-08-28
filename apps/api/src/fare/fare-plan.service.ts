@@ -25,10 +25,61 @@ export function largestRemainder(totalCents: number, weights: Record<string, num
   return Object.fromEntries(raw.map(x => [x.id, x.floor]));
 }
 
+/** Validates a plan against the immutable member snapshot for a revision. */
+export function validateFarePlan(plan: any, memberIds: string[]) {
+  const mode = plan?.mode;
+  if (!['EQUAL', 'FIXED', 'CUSTOM'].includes(mode)) throw new BadRequestException('FARE_PLAN_MODE_INVALID');
+  const allocations = plan?.allocations ?? {};
+  if (mode === 'EQUAL') {
+    if (Object.keys(allocations).length > 0) throw new BadRequestException('FARE_PLAN_MEMBERS_INVALID');
+    return { mode };
+  }
+  const keys = Object.keys(allocations).sort(), expected = [...memberIds].sort();
+  if (keys.length !== expected.length || keys.some((x, i) => x !== expected[i])) throw new BadRequestException('FARE_PLAN_MEMBERS_INVALID');
+  const vals = keys.map(k => Number(allocations[k]));
+  if (vals.some(v => !Number.isInteger(v) || v < 0)) throw new BadRequestException(mode === 'CUSTOM' ? 'FARE_PLAN_PERCENT_INVALID' : 'FARE_PLAN_AMOUNT_INVALID');
+  if (mode === 'FIXED' && vals.some(v => v <= 0)) throw new BadRequestException('FARE_PLAN_AMOUNT_INVALID');
+  if (mode === 'CUSTOM' && vals.reduce((a, b) => a + b, 0) !== 100) throw new BadRequestException('FARE_PLAN_PERCENT_TOTAL_INVALID');
+  return { mode, allocations: Object.fromEntries(keys.map(k => [k, Number(allocations[k])])) };
+}
+
+/** Converts a locked plan to a per-account actual-fare share in cents. */
+export function actualFareShare(plan: any, memberIds: string[], totalCents: number, userId: string) {
+  const normalized = validateFarePlan(plan, memberIds);
+  const allocations = normalized.mode === 'FIXED'
+    ? normalized.allocations!
+    : largestRemainder(totalCents, normalized.mode === 'CUSTOM'
+      ? normalized.allocations!
+      : Object.fromEntries(memberIds.map(id => [id, 1])));
+  return { mode: normalized.mode, amountCents: allocations[userId], fixedTotalMatchesActual: normalized.mode !== 'FIXED' || Object.values(allocations).reduce((sum, amount) => sum + Number(amount), 0) === totalCents };
+}
+
 @Injectable()
 export class FarePlanService {
   constructor(private readonly prisma: PrismaService) {}
   private tx<T>(fn: (c: any) => Promise<T>) { return this.prisma.$transaction(fn); }
+  private async claimIdempotencyKey(c: any, input: { key: string; operation: string; tripId: string; targetId: string; userId: string; body: any }) {
+    const requestFingerprint = normalizeFarePlanBody(input.body);
+    // Do not rely on Prisma P2002 inside this transaction: PostgreSQL marks a
+    // transaction aborted after a unique violation, so a subsequent read could
+    // never safely recover the original request.  ON CONFLICT is non-throwing.
+    const inserted = await c.$queryRaw`
+      INSERT INTO "fare_plan_idempotency_keys" (
+        "id", "key", "operation", "trip_id", "target_id", "user_id", "request_fingerprint", "created_at"
+      ) VALUES (
+        ${randomUUID()}, ${input.key}, ${input.operation}, ${input.tripId}, ${input.targetId}, ${input.userId}, ${requestFingerprint}, CURRENT_TIMESTAMP
+      ) ON CONFLICT ("key") DO NOTHING
+      RETURNING "key"
+    `;
+    if (Array.isArray(inserted) && inserted.length > 0) {
+      return false;
+    }
+    const prior = await c.farePlanIdempotencyKey.findUnique({ where: { key: input.key } });
+    if (!prior || prior.operation !== input.operation || prior.tripId !== input.tripId || prior.targetId !== input.targetId || prior.userId !== input.userId || prior.requestFingerprint !== requestFingerprint) {
+      throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+    }
+    return true;
+  }
   private async lockTrip(c: any, tripId: string) {
     if (c.$queryRaw) await c.$queryRaw`SELECT id FROM trips WHERE id = ${tripId} FOR UPDATE`;
     const trip = await c.trip.findUnique({ where: { id: tripId }, include: { members: true } });
@@ -36,20 +87,7 @@ export class FarePlanService {
     return trip;
   }
   private validatePlan(plan: any, memberIds: string[]) {
-    const mode = plan?.mode;
-    if (!['EQUAL', 'FIXED', 'CUSTOM'].includes(mode)) throw new BadRequestException('FARE_PLAN_MODE_INVALID');
-    const allocations = plan?.allocations ?? {};
-    if (mode === 'EQUAL') {
-      if (Object.keys(allocations).length > 0) throw new BadRequestException('FARE_PLAN_MEMBERS_INVALID');
-      return { mode };
-    }
-    const keys = Object.keys(allocations).sort(), expected = [...memberIds].sort();
-    if (keys.length !== expected.length || keys.some((x, i) => x !== expected[i])) throw new BadRequestException('FARE_PLAN_MEMBERS_INVALID');
-    const vals = keys.map(k => Number(allocations[k]));
-    if (vals.some(v => !Number.isInteger(v) || v < 0)) throw new BadRequestException(mode === 'CUSTOM' ? 'FARE_PLAN_PERCENT_INVALID' : 'FARE_PLAN_AMOUNT_INVALID');
-    if (mode === 'FIXED' && vals.some(v => v <= 0)) throw new BadRequestException('FARE_PLAN_AMOUNT_INVALID');
-    if (mode === 'CUSTOM' && vals.reduce((a, b) => a + b, 0) !== 100) throw new BadRequestException('FARE_PLAN_PERCENT_TOTAL_INVALID');
-    return { mode, allocations: Object.fromEntries(keys.map(k => [k, Number(allocations[k])])) };
+    return validateFarePlan(plan, memberIds);
   }
   private async currentRevision(c: any, tripId: string) {
     return c.farePlanRevision.findFirst({ where: { tripId, status: 'LOCKED' }, orderBy: { sequence: 'desc' }, include: { confirmations: true } });
@@ -69,15 +107,38 @@ export class FarePlanService {
     });
   }
 
+  /** Scheduled safety net for requests that no member reads after 24 hours. */
+  async expirePendingChangeRequests(now = new Date()): Promise<number> {
+    const candidates = await this.prisma.farePlanChangeRequest.findMany({
+      where: { status: 'PENDING', expiresAt: { lte: now } }, select: { id: true, tripId: true },
+    });
+    let expired = 0;
+    for (const candidate of candidates) {
+      const changed = await this.tx(async c => {
+        await this.lockTrip(c, candidate.tripId);
+        if (c.$queryRaw) await c.$queryRaw`SELECT id FROM fare_plan_change_requests WHERE id = ${candidate.id} FOR UPDATE`;
+        const result = await c.farePlanChangeRequest.updateMany({
+          where: { id: candidate.id, status: 'PENDING', expiresAt: { lte: now } }, data: { status: 'EXPIRED' },
+        });
+        if (result.count && c.auditLog?.create) await c.auditLog.create({ data: { tripId: candidate.tripId, actorId: '', action: 'fare-plan-change-expired', payload: { requestId: candidate.id } } });
+        return result.count === 1;
+      });
+      if (changed) expired++;
+    }
+    return expired;
+  }
+
   async createChangeRequest(tripId: string, userId: string, dto: CreateFarePlanChangeRequestDto, requestKey: string) {
     if (!requestKey) throw new BadRequestException('IDEMPOTENCY_KEY_REQUIRED');
     return this.tx(async c => {
       const trip = await this.lockTrip(c, tripId);
+      const replay = await this.claimIdempotencyKey(c, { key: requestKey, operation: 'CREATE_REQUEST', tripId, targetId: tripId, userId, body: { proposedPlan: dto.proposedPlan, reason: dto.reason ?? null } });
       const existing = await c.farePlanChangeRequest.findUnique({ where: { requestKey }, include: { decisions: true } });
       if (existing) {
         if (existing.tripId !== tripId || existing.requestedBy !== userId || normalizeFarePlanBody({ proposedPlan: existing.proposedPlan, reason: existing.reason }) !== normalizeFarePlanBody({ proposedPlan: dto.proposedPlan, reason: dto.reason ?? null })) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
         return existing;
       }
+      if (replay) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_CHANGE_FARE_PLAN');
       if (trip.disputeLocked || ![TripStatus.FORMED, TripStatus.WAITING_RIDE, TripStatus.RIDE_BOOKED].includes(trip.status) || (await c.fareOrder.findUnique({ where: { tripId } }))) throw new ConflictException('FARE_PLAN_CHANGE_NOT_ALLOWED');
       const base = await this.currentRevision(c, tripId);
@@ -104,8 +165,13 @@ export class FarePlanService {
       if (c.$queryRaw) await c.$queryRaw`SELECT id FROM fare_plan_change_requests WHERE id = ${requestId} FOR UPDATE`;
       const req = await c.farePlanChangeRequest.findUnique({ where: { id: requestId }, include: { decisions: true } });
       if (!req) throw new NotFoundException('FARE_PLAN_CHANGE_NOT_FOUND');
+      const replay = await this.claimIdempotencyKey(c, { key: idempotencyKey, operation: 'DECIDE', tripId: trip.id, targetId: requestId, userId, body: { decision: dto.decision } });
       const decision = req.decisions.find((item: any) => item.userId === userId);
       if (!decision) throw new ForbiddenException('FARE_PLAN_DECISION_MEMBER_REQUIRED');
+      if (replay) {
+        if (decision.decision !== dto.decision) throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+        return decision;
+      }
       const now = new Date();
       if (req.status === 'PENDING' && req.expiresAt <= now) { await c.farePlanChangeRequest.update({ where: { id: requestId }, data: { status: 'EXPIRED' } }); req.status = 'EXPIRED'; }
       if (req.status !== 'PENDING') {
@@ -144,9 +210,14 @@ export class FarePlanService {
       if (!revision || revision.tripId !== tripId) throw new NotFoundException('FARE_PLAN_REVISION_NOT_FOUND');
       const idem = await c.farePlanConfirmation.findUnique({ where: { idempotencyKey } });
       if (idem) { if (idem.revisionId !== revisionId || idem.userId !== userId) throw new ConflictException('IDEMPOTENCY_KEY_REUSED'); return idem; }
-      if (revision.status !== 'PENDING_CONFIRMATION') throw new ConflictException('FARE_PLAN_REVISION_NOT_PENDING');
       const snapshot = revision.confirmations.find((item: any) => item.userId === userId);
       if (!snapshot) throw new ForbiddenException('FARE_PLAN_DECISION_MEMBER_REQUIRED');
+      const replay = await this.claimIdempotencyKey(c, { key: idempotencyKey, operation: 'CONFIRM_REVISION', tripId, targetId: revisionId, userId, body: {} });
+      if (replay) {
+        if (snapshot.status !== 'CONFIRMED') throw new ConflictException('IDEMPOTENCY_KEY_REUSED');
+        return snapshot;
+      }
+      if (revision.status !== 'PENDING_CONFIRMATION') throw new ConflictException('FARE_PLAN_REVISION_NOT_PENDING');
       if (snapshot.status === 'CONFIRMED') return snapshot;
       if (snapshot.status !== 'PENDING') throw new ConflictException('FARE_PLAN_REVISION_NOT_PENDING');
       const confirmation = await c.farePlanConfirmation.update({ where: { id: snapshot.id }, data: { status: 'CONFIRMED', confirmedAt: new Date(), idempotencyKey } });

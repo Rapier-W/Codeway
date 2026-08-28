@@ -5,7 +5,8 @@ describe('FareService', () => {
   const tx: any = {
     trip: { findUnique: jest.fn(), update: jest.fn() },
     fareOrder: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
-    fareOrderConfirmation: { findUnique: jest.fn(), create: jest.fn(), count: jest.fn() },
+    fareOrderConfirmation: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), count: jest.fn(), deleteMany: jest.fn() },
+    farePlanRevision: { findFirst: jest.fn() },
     tripMember: { findUnique: jest.fn() },
     fareDispute: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
     paymentMark: { upsert: jest.fn() },
@@ -16,6 +17,9 @@ describe('FareService', () => {
   const prisma: any = {
     $transaction: jest.fn((fn: any) => fn(tx)),
     fareOrder: tx.fareOrder,
+    fareOrderConfirmation: tx.fareOrderConfirmation,
+    farePlanRevision: tx.farePlanRevision,
+    trip: tx.trip,
     tripMember: tx.tripMember,
     objectUpload: tx.objectUpload,
     auditLog: tx.auditLog,
@@ -24,7 +28,8 @@ describe('FareService', () => {
   let service: FareService;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    jest.resetAllMocks();
+    prisma.$transaction.mockImplementation((fn: any) => fn(tx));
     service = new FareService(prisma, storage);
     tx.trip.findUnique.mockResolvedValue({
       id: 't1', creatorId: 'u1', status: 'PENDING_SETTLEMENT',
@@ -35,6 +40,10 @@ describe('FareService', () => {
     tx.objectUpload.create.mockImplementation(async ({ data }: any) => ({ id: 'upload-1', ...data }));
     tx.objectUpload.updateMany.mockResolvedValue({ count: 1 });
     tx.objectUpload.findMany.mockResolvedValue([]);
+    storage.deleteObject.mockResolvedValue(undefined);
+    prisma.farePlanRevision.findFirst.mockResolvedValue({
+      id: 'revision-1', tripId: 't1', status: 'LOCKED', plan: { mode: 'EQUAL' },
+    });
     storage.createUploadGrant.mockImplementation(async ({ key, expiresAt }: any) => ({
       objectKey: key,
       uploadUrl: 'https://upload.example.test',
@@ -251,6 +260,72 @@ describe('FareService', () => {
     expect(storage.createPrivateDownloadUrl).toHaveBeenLastCalledWith('fare-screenshots/u1/t1/active.png', 60);
   });
 
+  it('returns a member\'s deterministic share from the locked plan instead of the order total', async () => {
+    prisma.fareOrder.findUnique.mockResolvedValue({
+      id: 'fo1', tripId: 't1', status: 'PENDING_CONFIRMATION', totalAmountCents: 100,
+      screenshotMimeType: 'image/png', screenshotSizeBytes: 12, createdAt: new Date(), confirmedAt: null,
+    });
+    prisma.trip.findUnique.mockResolvedValue({
+      id: 't1', disputeLocked: false,
+      members: [{ userId: 'u1', role: 'CREATOR', memberCount: 1 }, { userId: 'u2', role: 'MEMBER', memberCount: 1 }, { userId: 'u3', role: 'MEMBER', memberCount: 1 }],
+    });
+    prisma.tripMember.findFirst = jest.fn().mockResolvedValue({ tripId: 't1', userId: 'u2' });
+    prisma.fareOrderConfirmation.findFirst.mockResolvedValue(null);
+    prisma.farePlanRevision.findFirst.mockResolvedValue({
+      id: 'revision-1', tripId: 't1', status: 'LOCKED', plan: { mode: 'EQUAL' },
+    });
+
+    await expect(service.getOrder('fo1', 'u2')).resolves.toMatchObject({
+      costShare: { mode: 'EQUAL', amountCents: 33, confirmed: false },
+    });
+  });
+
+  it('creates a FIXED-plan order in manual review when its total differs from the locked allocation', async () => {
+    const activeUpload = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tripId: 't1', ownerId: 'u1',
+      objectKey: 'fare-screenshots/u1/t1/active.png', allowedMimeType: 'image/png',
+      maxSizeBytes: 10 * 1024 * 1024, expiresAt: new Date(Date.now() + 60_000), claimedAt: null,
+    };
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', creatorId: 'u1', status: 'PENDING_SETTLEMENT', disputeLocked: false, members: [{ userId: 'u1' }, { userId: 'u2' }] });
+    tx.objectUpload.findUnique.mockResolvedValue(activeUpload);
+    tx.fareOrder.findUnique.mockResolvedValue(null);
+    prisma.farePlanRevision.findFirst.mockResolvedValue({
+      id: 'revision-1', tripId: 't1', status: 'LOCKED', plan: { mode: 'FIXED', allocations: { u1: 400, u2: 500 } },
+    });
+    storage.statObject.mockResolvedValue({ key: activeUpload.objectKey, mimeType: 'image/png', sizeBytes: 512 });
+    tx.fareOrder.create.mockImplementation(async ({ data }: any) => ({ id: 'fo1', ...data }));
+
+    await expect(service.createOrder('t1', 'u1', { screenshotUploadId: activeUpload.id, actualTotalFareCents: 1000 } as any, 'order-key'))
+      .resolves.toMatchObject({ fareOrder: { status: 'MANUAL_REVIEW' }, locked: true });
+  });
+
+  it('resolves an amount-confirmed dispute through valid settlement transitions before opening review', async () => {
+    const resolvedAt = new Date('2026-08-28T12:00:00.000Z');
+    tx.fareOrder.findUnique.mockResolvedValue({ id: 'fo1', tripId: 't1', status: 'DISPUTED' });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'ORDER_DISPUTED', disputeLocked: true, members: [{ userId: 'u1' }, { userId: 'u2' }] });
+    tx.fareDispute.findFirst.mockResolvedValue({ id: 'd1', fareOrderId: 'fo1', status: 'OPEN' });
+    tx.fareOrder.update.mockResolvedValue({ id: 'fo1', status: 'CONFIRMED' });
+
+    await expect(service.resolveFareDisputeForRetention('fo1', 'operator-1', 'AMOUNT_CONFIRMED', resolvedAt))
+      .resolves.toMatchObject({ locked: false, fareOrder: { status: 'CONFIRMED' } });
+
+    expect(tx.trip.update).toHaveBeenNthCalledWith(1, expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING_SETTLEMENT', disputeLocked: false }) }));
+    expect(tx.trip.update).toHaveBeenNthCalledWith(2, expect.objectContaining({ data: expect.objectContaining({ status: 'SETTLED' }) }));
+    expect(tx.trip.update).toHaveBeenNthCalledWith(3, expect.objectContaining({ data: expect.objectContaining({ status: 'PENDING_REVIEW' }) }));
+  });
+
+  it('allows trusted resolution of a FIXED mismatch manual-review order', async () => {
+    const resolvedAt = new Date('2026-08-28T12:00:00.000Z');
+    tx.fareOrder.findUnique.mockResolvedValue({ id: 'fo-manual', tripId: 't1', status: 'MANUAL_REVIEW' });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'PENDING_SETTLEMENT', disputeLocked: false, members: [{ userId: 'u1' }, { userId: 'u2' }] });
+    tx.fareDispute.findFirst.mockResolvedValue(null);
+    tx.fareOrder.update.mockResolvedValue({ id: 'fo-manual', status: 'CONFIRMED' });
+
+    await expect(service.resolveFareDisputeForRetention('fo-manual', 'operator-1', 'AMOUNT_CONFIRMED', resolvedAt))
+      .resolves.toMatchObject({ fareOrder: { status: 'CONFIRMED' }, locked: false });
+    expect(tx.fareOrder.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'CONFIRMED' }) }));
+  });
+
   it('returns gone rather than a conflict for a retention-deleted screenshot', async () => {
     tx.fareOrder.findUnique.mockResolvedValue({ id: 'fo1', tripId: 't1', screenshotKey: 'fare-screenshots/u1/t1/deleted.png', screenshotDeletedAt: new Date() });
     tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u2' });
@@ -271,6 +346,52 @@ describe('FareService', () => {
     expect(storage.deleteObject).toHaveBeenCalledWith(order.screenshotKey);
     expect(tx.fareOrder.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { screenshotDeletedAt: now } }));
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'fare-screenshot-retention-deleted' }) }));
+  });
+
+  it('does not delete before 90 days, but deletes exactly at the deadline', async () => {
+    const confirmedAt = new Date('2026-01-01T00:00:00.000Z');
+    const deadline = new Date('2026-04-01T00:00:00.000Z');
+    const order = { id: 'fo-90', tripId: 't1', screenshotKey: 'fare-screenshots/90.png', retentionDeleteAfter: deadline, screenshotDeletedAt: null };
+    tx.fareOrder.findMany.mockResolvedValue([]);
+    await expect(service.cleanupExpiredBoundScreenshots(new Date('2026-03-31T23:59:59.999Z'))).resolves.toBe(0);
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+
+    tx.fareOrder.findMany.mockResolvedValue([{ id: order.id }]);
+    tx.fareOrder.findUnique.mockResolvedValue(order);
+    tx.fareDispute.findFirst.mockResolvedValue(null);
+    tx.fareOrder.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.cleanupExpiredBoundScreenshots(deadline)).resolves.toBe(1);
+    expect(storage.deleteObject).toHaveBeenCalledWith(order.screenshotKey);
+  });
+
+  it('does not delete an open-dispute screenshot and retries after a transient storage failure', async () => {
+    const now = new Date('2026-04-01T00:00:00.000Z');
+    const order = { id: 'fo-dispute', tripId: 't1', screenshotKey: 'fare-screenshots/dispute.png', retentionDeleteAfter: now, screenshotDeletedAt: null };
+    tx.fareOrder.findMany.mockResolvedValue([{ id: order.id }]);
+    tx.fareOrder.findUnique.mockResolvedValue(order);
+    tx.fareDispute.findFirst.mockResolvedValue({ id: 'd1', status: 'OPEN' });
+    await expect(service.cleanupExpiredBoundScreenshots(now)).resolves.toBe(0);
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+
+    tx.fareDispute.findFirst.mockResolvedValue(null);
+    tx.fareOrder.updateMany.mockResolvedValue({ count: 1 });
+    storage.deleteObject.mockRejectedValueOnce(new Error('temporary storage failure')).mockResolvedValueOnce(undefined);
+    await expect(service.cleanupExpiredBoundScreenshots(now)).resolves.toBe(0);
+    expect(tx.fareOrder.updateMany).not.toHaveBeenCalled();
+    await expect(service.cleanupExpiredBoundScreenshots(now)).resolves.toBe(1);
+    expect(tx.fareOrder.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { screenshotDeletedAt: now } }));
+  });
+
+  it('treats a missing Kodo object (612) as an idempotent successful cleanup', async () => {
+    const now = new Date('2026-04-01T00:00:00.000Z');
+    const order = { id: 'fo-612', tripId: 't1', screenshotKey: 'fare-screenshots/missing.png', retentionDeleteAfter: now, screenshotDeletedAt: null };
+    tx.fareOrder.findMany.mockResolvedValue([{ id: order.id }]);
+    tx.fareOrder.findUnique.mockResolvedValue(order);
+    tx.fareDispute.findFirst.mockResolvedValue(null);
+    storage.deleteObject.mockRejectedValue({ code: 612 });
+    tx.fareOrder.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.cleanupExpiredBoundScreenshots(now)).resolves.toBe(1);
+    expect(tx.fareOrder.updateMany).toHaveBeenCalled();
   });
 
   it('deletes only expired unclaimed undeleted uploads and marks them only after successful deletes', async () => {

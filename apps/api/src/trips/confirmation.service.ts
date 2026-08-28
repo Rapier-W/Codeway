@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { canTransition, ConfirmationStatus, TripStatus } from './trip-status';
+import { validateFarePlan } from '../fare/fare-plan.service';
 
 const WINDOW_MS = 15_000;
 
@@ -47,14 +48,16 @@ export class ConfirmationService {
       // The trip-level value is only the pre-formation proposal; FarePlanRevision
       // becomes the source of truth once this row is created.
       const currentRevision = await tx.farePlanRevision.findFirst({
-        where: { tripId }, orderBy: { sequence: 'desc' },
+        where: { tripId, status: { not: 'SUPERSEDED' } }, orderBy: { sequence: 'desc' },
       });
       if (!currentRevision) {
+        const latestRevision = await tx.farePlanRevision.findFirst({ where: { tripId }, orderBy: { sequence: 'desc' } });
+        const plan = validateFarePlan(trip.initialFarePlan ?? { mode: 'EQUAL' }, (trip.members ?? []).map((item: any) => item.userId));
         const revision = await tx.farePlanRevision.create({
           data: {
             tripId,
-            sequence: 1,
-            plan: trip.initialFarePlan ?? { mode: 'EQUAL' },
+            sequence: (latestRevision?.sequence ?? 0) + 1,
+            plan,
             status: 'PENDING_CONFIRMATION',
           },
         });
@@ -83,8 +86,24 @@ export class ConfirmationService {
       if (confirmation.status === ConfirmationStatus.VOID) return { confirmation, tripStatus: trip.status, duplicate: true };
       if (trip.status !== TripStatus.FORMED || !confirmation.retractUntil || new Date() >= confirmation.retractUntil) throw new ConflictException('WITHDRAW_WINDOW_EXPIRED');
       if (!canTransition(trip.status, TripStatus.RECRUITING)) throw new ConflictException('INVALID_TRIP_TRANSITION');
+      const now = new Date();
       await tx.tripConfirmation.updateMany({ where: { tripId, status: ConfirmationStatus.CONFIRMED }, data: { status: ConfirmationStatus.VOID } });
-      const updated = await tx.trip.update({ where: { id: tripId }, data: { status: TripStatus.RECRUITING, version: { increment: 1 } } });
+      // Any plan snapshot created for this failed formation belongs to the old
+      // member set.  Preserve it for audit, but never allow it to revive.
+      await tx.farePlanConfirmation.updateMany({
+        where: { revision: { tripId, status: { in: ['PENDING_CONFIRMATION', 'LOCKED'] } }, status: { in: ['PENDING', 'CONFIRMED'] } },
+        data: { status: 'VOID', voidedAt: now },
+      });
+      await tx.farePlanRevision.updateMany({
+        where: { tripId, status: { in: ['PENDING_CONFIRMATION', 'LOCKED'] } },
+        data: { status: 'SUPERSEDED', supersededAt: now },
+      });
+      // A request based on the reverted member snapshot must not occupy the
+      // partial-PENDING slot after the trip starts recruiting again.
+      await tx.farePlanChangeRequest.updateMany({
+        where: { tripId, status: 'PENDING' }, data: { status: 'EXPIRED' },
+      });
+      const updated = await tx.trip.update({ where: { id: tripId }, data: { status: TripStatus.RECRUITING, feePlan: null, version: { increment: 1 } } });
       await this.audit(tx, tripId, userId, 'withdraw', { confirmationId });
       await this.audit(tx, tripId, userId, 'rollback', { reason: 'WITHDRAWAL_WINDOW' });
       await this.audit(tx, tripId, userId, 'notify-members', { memberIds: (trip.members ?? []).map((member: any) => member.userId), type: 'CONFIRMATION_ROLLBACK' });

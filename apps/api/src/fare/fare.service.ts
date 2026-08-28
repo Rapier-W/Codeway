@@ -8,6 +8,7 @@ import { CreateReviewDto } from './dto/create-review.dto';
 import { canTransition, TripStatus } from '../trips/trip-status';
 import { OBJECT_STORAGE_PROVIDER, ObjectStorageProvider } from '../storage/object-storage.provider';
 import { CreateFareScreenshotUploadDto } from './dto/create-fare-screenshot-upload.dto';
+import { actualFareShare } from './fare-plan.service';
 
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 const CONFIRMATION_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -42,6 +43,11 @@ export class FareService {
     if (!member) throw new ForbiddenException('TRIP_MEMBER_REQUIRED');
 
     const confirmation = await this.prisma.fareOrderConfirmation.findFirst({ where: { fareOrderId, userId } });
+    const revision = await this.prisma.farePlanRevision.findFirst({
+      where: { tripId: order.tripId, status: 'LOCKED' }, orderBy: { sequence: 'desc' },
+    });
+    if (!revision) throw new ConflictException('FARE_PLAN_NOT_LOCKED');
+    const share = actualFareShare(revision.plan, (trip.members ?? []).map((item: any) => item.userId), order.totalAmountCents, userId);
     const disputed = order.status === 'DISPUTED' || order.status === 'MANUAL_REVIEW';
 
     return {
@@ -58,8 +64,8 @@ export class FareService {
       createdAt: order.createdAt.toISOString(),
       confirmedAt: order.confirmedAt ? order.confirmedAt.toISOString() : null,
       costShare: {
-        mode: 'EQUAL' as const,
-        amountCents: order.totalAmountCents,
+        mode: share.mode,
+        amountCents: share.amountCents,
         confirmed: Boolean(confirmation),
       },
       members: (trip.members ?? []).map((member: any) => ({ userId: member.userId, role: member.role, memberCount: member.memberCount })),
@@ -172,6 +178,9 @@ export class FareService {
       if (trip.creatorId !== userId) throw new ForbiddenException('ONLY_CREATOR_CAN_SUBMIT_ORDER');
       if (trip.disputeLocked || trip.status === 'ORDER_DISPUTED') throw new ConflictException('FARE_SETTLEMENT_LOCKED');
       if (![TripStatus.RIDE_BOOKED, TripStatus.PENDING_SETTLEMENT].includes(trip.status as any)) throw new ConflictException('TRIP_NOT_READY_FOR_SETTLEMENT');
+      const revision = await client.farePlanRevision.findFirst({ where: { tripId, status: 'LOCKED' }, orderBy: { sequence: 'desc' } });
+      if (!revision) throw new ConflictException('FARE_PLAN_NOT_LOCKED');
+      const share = actualFareShare(revision.plan, (trip.members ?? []).map((item: any) => item.userId), Number(dto.actualTotalFareCents), userId);
       const upload = await client.objectUpload.findUnique({ where: { id: dto.screenshotUploadId } });
       const now = new Date();
       if (!upload || upload.tripId !== tripId || upload.ownerId !== userId || upload.claimedAt || upload.deletedAt) {
@@ -203,7 +212,7 @@ export class FareService {
       const data = {
         tripId, submittedBy: userId, screenshotKey: metadata.key,
         screenshotMimeType: metadata.mimeType, screenshotSizeBytes: metadata.sizeBytes,
-        totalAmountCents: Number(dto.actualTotalFareCents), status: 'PENDING_CONFIRMATION', confirmedAt: null,
+        totalAmountCents: Number(dto.actualTotalFareCents), status: share.fixedTotalMatchesActual ? 'PENDING_CONFIRMATION' : 'MANUAL_REVIEW', confirmedAt: null,
       };
       const existing = await client.fareOrder.findUnique({ where: { tripId } });
       let order: any;
@@ -222,8 +231,9 @@ export class FareService {
         if (!canTransition(trip.status, TripStatus.PENDING_SETTLEMENT)) throw new ConflictException('INVALID_TRIP_TRANSITION');
         await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_SETTLEMENT, disputeLocked: false, version: { increment: 1 } } });
       }
-      await this.audit(client, tripId, userId, 'fare-order-submit', { fareOrderId: order.id, totalAmountCents: order.totalAmountCents });
-      return { fareOrder: order, duplicate: false, locked: false };
+      const locked = order.status === 'MANUAL_REVIEW';
+      await this.audit(client, tripId, userId, locked ? 'fare-order-fixed-plan-mismatch' : 'fare-order-submit', { fareOrderId: order.id, totalAmountCents: order.totalAmountCents });
+      return { fareOrder: order, duplicate: false, locked };
     });
   }
 
@@ -344,26 +354,34 @@ export class FareService {
       const order = await client.fareOrder.findUnique({ where: { id: fareOrderId } });
       if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
       const trip = await this.lockTrip(client, order.tripId);
-      if (order.status !== 'DISPUTED') throw new ConflictException('FARE_DISPUTE_NOT_OPEN');
+      const manualReview = order.status === 'MANUAL_REVIEW';
+      if (order.status !== 'DISPUTED' && !manualReview) throw new ConflictException('FARE_DISPUTE_NOT_OPEN');
       const dispute = await client.fareDispute.findFirst({ where: { fareOrderId, status: 'OPEN' }, orderBy: { createdAt: 'desc' } });
-      if (!dispute) throw new ConflictException('FARE_DISPUTE_NOT_OPEN');
+      if (!dispute && !manualReview) throw new ConflictException('FARE_DISPUTE_NOT_OPEN');
       if (outcome === 'UNRESOLVED') {
-        await this.audit(client, trip.id, actorId, 'fare-dispute-unresolved', { fareOrderId, disputeId: dispute.id });
+        await this.audit(client, trip.id, actorId, 'fare-dispute-unresolved', { fareOrderId, disputeId: dispute?.id ?? null });
         return { fareOrder: order, dispute, locked: true };
       }
       const retentionDeleteAfter = new Date(resolvedAt.getTime() + 90 * 24 * 60 * 60 * 1000);
-      await client.fareDispute.update({ where: { id: dispute.id }, data: { status: 'RESOLVED', resolution: outcome, resolvedAt } });
+      if (dispute) await client.fareDispute.update({ where: { id: dispute.id }, data: { status: 'RESOLVED', resolution: outcome, resolvedAt } });
       if (outcome === 'AMOUNT_CONFIRMED') {
         const fareOrder = await client.fareOrder.update({ where: { id: fareOrderId }, data: { status: 'CONFIRMED', confirmedAt: resolvedAt, retentionDeleteAfter } });
-        await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_REVIEW, disputeLocked: false, version: { increment: 1 } } });
-        await this.audit(client, trip.id, actorId, 'fare-dispute-resolved', { fareOrderId, disputeId: dispute.id, outcome });
-        return { fareOrder, dispute: { ...dispute, status: 'RESOLVED', resolution: outcome, resolvedAt }, locked: false };
+        // Keep the persisted transition sequence legal and auditable instead
+        // of jumping from ORDER_DISPUTED straight to PENDING_REVIEW.
+        if (!canTransition(trip.status, TripStatus.PENDING_SETTLEMENT) || !canTransition(TripStatus.PENDING_SETTLEMENT, TripStatus.SETTLED) || !canTransition(TripStatus.SETTLED, TripStatus.PENDING_REVIEW)) {
+          throw new ConflictException('INVALID_TRIP_TRANSITION');
+        }
+        await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_SETTLEMENT, disputeLocked: false, version: { increment: 1 } } });
+        await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.SETTLED, version: { increment: 1 } } });
+        await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_REVIEW, version: { increment: 1 } } });
+        await this.audit(client, trip.id, actorId, 'fare-dispute-resolved', { fareOrderId, disputeId: dispute?.id ?? null, outcome });
+        return { fareOrder, dispute: dispute ? { ...dispute, status: 'RESOLVED', resolution: outcome, resolvedAt } : null, locked: false };
       }
       await client.fareOrderConfirmation.deleteMany({ where: { fareOrderId } });
       const fareOrder = await client.fareOrder.update({ where: { id: fareOrderId }, data: { status: 'PENDING_CONFIRMATION', confirmedAt: null, retentionDeleteAfter } });
       await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_SETTLEMENT, disputeLocked: false, version: { increment: 1 } } });
-      await this.audit(client, trip.id, actorId, 'fare-dispute-reconfirm-required', { fareOrderId, disputeId: dispute.id, outcome });
-      return { fareOrder, dispute: { ...dispute, status: 'RESOLVED', resolution: outcome, resolvedAt }, locked: false };
+      await this.audit(client, trip.id, actorId, 'fare-dispute-reconfirm-required', { fareOrderId, disputeId: dispute?.id ?? null, outcome });
+      return { fareOrder, dispute: dispute ? { ...dispute, status: 'RESOLVED', resolution: outcome, resolvedAt } : null, locked: false };
     });
   }
 

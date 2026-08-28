@@ -4,6 +4,7 @@ import { RideService } from '../ride/ride.service';
 
 describe('PlatformService', () => {
   const tx: any = {
+    $executeRawUnsafe: jest.fn(),
     user: { upsert: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     trip: { findUnique: jest.fn(), update: jest.fn() },
     tripMember: { findUnique: jest.fn() },
@@ -79,6 +80,17 @@ describe('PlatformService', () => {
     tx.trip.findUnique.mockResolvedValueOnce({ id: 't1', status: 'RIDE_BOOKED', creatorId: 'u1' });
     await expect(service.openRide('t1', 'u1', 'manual', 'booked-key')).rejects.toMatchObject({ response: { message: 'TRIP_NOT_READY_FOR_RIDE' } });
     expect(tx.rideRecord.create).not.toHaveBeenCalled();
+  });
+
+  it('sets the configured PostgreSQL lock timeout inside state transactions', async () => {
+    const prior = process.env.POSTGRES_LOCK_TIMEOUT_MS;
+    process.env.POSTGRES_LOCK_TIMEOUT_MS = '250';
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'FORMED', creatorId: 'u1', origin: 'A', destination: 'B', departTime: new Date() });
+    tx.rideRecord.findUnique.mockResolvedValue(null);
+    tx.rideRecord.create.mockResolvedValue({ id: 'r1', tripId: 't1', requestedBy: 'u1', platform: 'manual', requestKey: 'lock-key', status: 'WAITING_RIDE' });
+    await service.openRide('t1', 'u1', 'manual', 'lock-key');
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledWith("SET LOCAL lock_timeout = '250ms'");
+    if (prior === undefined) delete process.env.POSTGRES_LOCK_TIMEOUT_MS; else process.env.POSTGRES_LOCK_TIMEOUT_MS = prior;
   });
 
 

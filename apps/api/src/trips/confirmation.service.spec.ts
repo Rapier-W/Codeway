@@ -7,8 +7,9 @@ describe('ConfirmationService', () => {
     trip: { findUnique: jest.fn(), update: jest.fn() },
     tripMember: { findUnique: jest.fn() },
     tripConfirmation: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
-    farePlanRevision: { findFirst: jest.fn(), create: jest.fn() },
-    farePlanConfirmation: { createMany: jest.fn() },
+    farePlanRevision: { findFirst: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
+    farePlanConfirmation: { createMany: jest.fn(), updateMany: jest.fn() },
+    farePlanChangeRequest: { updateMany: jest.fn() },
     auditLog: { create: jest.fn() },
   };
   const prisma: any = { $transaction: jest.fn((fn: any) => fn(tx)) };
@@ -73,6 +74,28 @@ describe('ConfirmationService', () => {
     expect(result.tripStatus).toBe('RECRUITING');
     expect(tx.tripConfirmation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'VOID' }) }));
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'rollback' }) }));
+  });
+
+  it('voids the unconfirmed initial fare-plan round so the next formation can snapshot changed members', async () => {
+    const deadline = new Date(Date.now() + 10_000);
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'FORMED', version: 2, members: [{ userId: 'u1' }, { userId: 'u3' }] });
+    tx.tripConfirmation.findUnique.mockResolvedValue({ id: 'c1', tripId: 't1', userId: 'u1', status: 'CONFIRMED', retractUntil: deadline });
+    tx.tripConfirmation.updateMany.mockResolvedValue({ count: 2 });
+    tx.farePlanRevision.updateMany.mockResolvedValue({ count: 1 });
+    tx.farePlanConfirmation.updateMany.mockResolvedValue({ count: 2 });
+    tx.trip.update.mockResolvedValue({ id: 't1', status: 'RECRUITING' });
+
+    await service.withdraw('t1', 'c1', 'u1');
+
+    expect(tx.farePlanConfirmation.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ revision: expect.objectContaining({ tripId: 't1' }), status: { in: ['PENDING', 'CONFIRMED'] } }),
+      data: expect.objectContaining({ status: 'VOID', voidedAt: expect.any(Date) }),
+    }));
+    expect(tx.farePlanRevision.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tripId: 't1', status: { in: ['PENDING_CONFIRMATION', 'LOCKED'] } },
+      data: expect.objectContaining({ status: 'SUPERSEDED', supersededAt: expect.any(Date) }),
+    }));
+    expect(tx.farePlanChangeRequest.updateMany).toHaveBeenCalledWith({ where: { tripId: 't1', status: 'PENDING' }, data: { status: 'EXPIRED' } });
   });
 
   it('rejects withdrawal after the 15 second window', async () => {
