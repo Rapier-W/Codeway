@@ -7,6 +7,8 @@ describe('ConfirmationService', () => {
     trip: { findUnique: jest.fn(), update: jest.fn() },
     tripMember: { findUnique: jest.fn() },
     tripConfirmation: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+    farePlanRevision: { findFirst: jest.fn(), create: jest.fn() },
+    farePlanConfirmation: { createMany: jest.fn() },
     auditLog: { create: jest.fn() },
   };
   const prisma: any = { $transaction: jest.fn((fn: any) => fn(tx)) };
@@ -27,18 +29,22 @@ describe('ConfirmationService', () => {
   });
 
   it('forms the trip and opens a 15 second withdrawal window when all members confirm', async () => {
-    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'CONFIRMING', version: 1, members: [{ id: 'm1' }, { id: 'm2' }] });
+    tx.trip.findUnique.mockResolvedValue({ id: 't1', status: 'CONFIRMING', version: 1, initialFarePlan: { mode: 'EQUAL' }, members: [{ id: 'm1', userId: 'u1' }, { id: 'm2', userId: 'u2' }] });
     tx.tripMember.findUnique.mockResolvedValue({ id: 'm2', tripId: 't1', userId: 'u2' });
     tx.tripConfirmation.findUnique.mockResolvedValue(null);
     tx.tripConfirmation.findMany.mockResolvedValue([{ id: 'c1', memberId: 'm1', status: 'CONFIRMED' }]);
     tx.tripConfirmation.create.mockResolvedValue({ id: 'c2', memberId: 'm2', status: 'CONFIRMED' });
     tx.tripConfirmation.updateMany.mockResolvedValue({ count: 2 });
     tx.trip.update.mockResolvedValue({ id: 't1', status: 'FORMED' });
+    tx.farePlanRevision.findFirst.mockResolvedValue(null);
+    tx.farePlanRevision.create.mockResolvedValue({ id: 'r1' });
     const result = await service.confirm('t1', 'u2', 'key-2');
     expect(result.tripStatus).toBe('FORMED');
     expect(result.retractUntil.getTime()).toBeGreaterThan(Date.now());
     expect(tx.tripConfirmation.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'CONFIRMED', retractUntil: expect.any(Date) }) }));
     expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'form-group' }) }));
+    expect(tx.farePlanRevision.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ tripId: 't1', sequence: 1, status: 'PENDING_CONFIRMATION' }) }));
+    expect(tx.farePlanConfirmation.createMany).toHaveBeenCalledWith({ data: expect.arrayContaining([expect.objectContaining({ revisionId: 'r1', userId: 'u1', status: 'PENDING' })]) });
   });
 
   it('returns the same confirmation for a duplicate idempotency key', async () => {

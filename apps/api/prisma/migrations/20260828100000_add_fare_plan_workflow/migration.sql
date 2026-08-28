@@ -13,7 +13,7 @@ CREATE TABLE "fare_plan_confirmations" (
   "id" TEXT NOT NULL,
   "revision_id" TEXT NOT NULL,
   "user_id" TEXT NOT NULL,
-  "status" TEXT NOT NULL DEFAULT 'CONFIRMED',
+  "status" TEXT NOT NULL DEFAULT 'PENDING',
   "idempotency_key" TEXT,
   "confirmed_at" TIMESTAMP(3),
   "voided_at" TIMESTAMP(3),

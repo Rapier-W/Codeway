@@ -43,6 +43,29 @@ export class ConfirmationService {
       await tx.tripConfirmation.updateMany({ where: { tripId, status: ConfirmationStatus.CONFIRMED }, data: { status: ConfirmationStatus.CONFIRMED, retractUntil } });
       if (!canTransition(trip.status, TripStatus.FORMED)) throw new ConflictException('INVALID_TRIP_TRANSITION');
       const updated = await tx.trip.update({ where: { id: tripId }, data: { status: TripStatus.FORMED, version: { increment: 1 } } });
+      // A formed trip starts its own immutable fare-plan confirmation round.
+      // The trip-level value is only the pre-formation proposal; FarePlanRevision
+      // becomes the source of truth once this row is created.
+      const currentRevision = await tx.farePlanRevision.findFirst({
+        where: { tripId }, orderBy: { sequence: 'desc' },
+      });
+      if (!currentRevision) {
+        const revision = await tx.farePlanRevision.create({
+          data: {
+            tripId,
+            sequence: 1,
+            plan: trip.initialFarePlan ?? { mode: 'EQUAL' },
+            status: 'PENDING_CONFIRMATION',
+          },
+        });
+        await tx.farePlanConfirmation.createMany({
+          data: (trip.members ?? []).map((item: any) => ({
+            revisionId: revision.id,
+            userId: item.userId,
+            status: 'PENDING',
+          })),
+        });
+      }
       await this.audit(tx, tripId, userId, 'confirm', { confirmationId: confirmation.id, retractUntil });
       await this.audit(tx, tripId, userId, 'form-group', { retractUntil });
       return { confirmation: { ...confirmation, retractUntil }, tripStatus: updated.status, duplicate: false, retractUntil };

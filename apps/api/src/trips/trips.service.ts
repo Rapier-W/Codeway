@@ -35,7 +35,7 @@ export class TripsService {
           return { ...existing, reasonCodes: [] };
         }
       }
-      const trip = await tx.trip.create({ data: { creatorId: userId, origin: dto.origin, destination: dto.destination, departTime, capacity: Number(dto.capacity), feePlan: dto.feePlan as any, femaleOnly: Boolean(dto.femaleOnly), ...(idempotencyKey ? { createRequestKey: idempotencyKey } : {}), members: { create: { userId, role: 'CREATOR', memberCount: 1 } } }, include: { members: true } });
+      const trip = await tx.trip.create({ data: { creatorId: userId, origin: dto.origin, destination: dto.destination, departTime, capacity: Number(dto.capacity), initialFarePlan: dto.feePlan as any, femaleOnly: Boolean(dto.femaleOnly), ...(idempotencyKey ? { createRequestKey: idempotencyKey } : {}), members: { create: { userId, role: 'CREATOR', memberCount: 1 } } }, include: { members: true } });
       return { ...trip, reasonCodes: [] };
       });
     } catch (error: any) {

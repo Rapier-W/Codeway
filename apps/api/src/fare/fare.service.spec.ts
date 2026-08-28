@@ -1,13 +1,13 @@
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, GoneException } from '@nestjs/common';
 import { FareService } from './fare.service';
 
 describe('FareService', () => {
   const tx: any = {
     trip: { findUnique: jest.fn(), update: jest.fn() },
-    fareOrder: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    fareOrder: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     fareOrderConfirmation: { findUnique: jest.fn(), create: jest.fn(), count: jest.fn() },
     tripMember: { findUnique: jest.fn() },
-    fareDispute: { create: jest.fn(), findFirst: jest.fn() },
+    fareDispute: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
     paymentMark: { upsert: jest.fn() },
     review: { findUnique: jest.fn(), create: jest.fn() },
     auditLog: { create: jest.fn() },
@@ -249,6 +249,28 @@ describe('FareService', () => {
     storage.createPrivateDownloadUrl.mockResolvedValue('memory://fare-screenshots/u1/t1/active.png?expires=60');
     await expect(service.getScreenshotUrl('fo1', 'u2')).resolves.toMatchObject({ url: expect.stringContaining('expires=60') });
     expect(storage.createPrivateDownloadUrl).toHaveBeenLastCalledWith('fare-screenshots/u1/t1/active.png', 60);
+  });
+
+  it('returns gone rather than a conflict for a retention-deleted screenshot', async () => {
+    tx.fareOrder.findUnique.mockResolvedValue({ id: 'fo1', tripId: 't1', screenshotKey: 'fare-screenshots/u1/t1/deleted.png', screenshotDeletedAt: new Date() });
+    tx.tripMember.findUnique.mockResolvedValue({ id: 'm1', tripId: 't1', userId: 'u2' });
+
+    await expect(service.getScreenshotUrl('fo1', 'u2')).rejects.toBeInstanceOf(GoneException);
+    expect(storage.createPrivateDownloadUrl).not.toHaveBeenCalled();
+  });
+
+  it('deletes an eligible bound screenshot once and writes an audit record', async () => {
+    const now = new Date('2026-11-24T00:00:00.000Z');
+    const order = { id: 'fo1', tripId: 't1', screenshotKey: 'fare-screenshots/u1/t1/receipt.png', retentionDeleteAfter: new Date('2026-11-24T00:00:00.000Z'), screenshotDeletedAt: null };
+    tx.fareOrder.findMany.mockResolvedValue([order]);
+    tx.fareOrder.findUnique.mockResolvedValue(order);
+    tx.fareDispute.findFirst.mockResolvedValue(null);
+    tx.fareOrder.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.cleanupExpiredBoundScreenshots(now)).resolves.toBe(1);
+    expect(storage.deleteObject).toHaveBeenCalledWith(order.screenshotKey);
+    expect(tx.fareOrder.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { screenshotDeletedAt: now } }));
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: 'fare-screenshot-retention-deleted' }) }));
   });
 
   it('deletes only expired unclaimed undeleted uploads and marks them only after successful deletes', async () => {

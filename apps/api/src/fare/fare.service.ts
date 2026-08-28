@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, GoneException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { CreateFareOrderDto } from './dto/create-fare-order.dto';
@@ -54,7 +54,7 @@ export class FareService {
       totalAmountCents: order.totalAmountCents,
       screenshotMimeType: order.screenshotMimeType,
       screenshotSizeBytes: order.screenshotSizeBytes,
-      screenshotAvailable: true,
+      screenshotAvailable: !Boolean((order as any).screenshotDeletedAt),
       createdAt: order.createdAt.toISOString(),
       confirmedAt: order.confirmedAt ? order.confirmedAt.toISOString() : null,
       costShare: {
@@ -231,7 +231,7 @@ export class FareService {
     const order = await this.prisma.fareOrder.findUnique({ where: { id: fareOrderId } });
     if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
     await this.membership(this.prisma, order.tripId, userId);
-    if ((order as any).screenshotDeletedAt) throw new ConflictException('SCREENSHOT_RETENTION_EXPIRED');
+    if ((order as any).screenshotDeletedAt) throw new GoneException('SCREENSHOT_RETENTION_EXPIRED');
     const expiresInSeconds = 60;
     const url = await this.storage.createPrivateDownloadUrl(order.screenshotKey, expiresInSeconds);
     return { url, expiresAt: new Date(Date.now() + expiresInSeconds * 1000).toISOString() };
@@ -284,7 +284,8 @@ export class FareService {
       const confirmation = await client.fareOrderConfirmation.create({ data: { fareOrderId, userId } });
       const confirmedCount = await client.fareOrderConfirmation.count({ where: { fareOrderId } });
       if (confirmedCount >= (trip.members ?? []).length) {
-        const confirmed = await client.fareOrder.update({ where: { id: fareOrderId }, data: { status: 'CONFIRMED', confirmedAt: new Date() } });
+        const confirmedAt = new Date();
+        const confirmed = await client.fareOrder.update({ where: { id: fareOrderId }, data: { status: 'CONFIRMED', confirmedAt, retentionDeleteAfter: new Date(confirmedAt.getTime() + 90 * 24 * 60 * 60 * 1000) } });
         // 费用全员确认是结算状态机的唯一推进点：先完成结算，再开放评价窗口。
         if (trip.status === TripStatus.PENDING_SETTLEMENT) {
           if (!canTransition(trip.status, TripStatus.SETTLED) || !canTransition(TripStatus.SETTLED, TripStatus.PENDING_REVIEW)) {
@@ -320,10 +321,87 @@ export class FareService {
       }
       const dispute = await client.fareDispute.create({ data: { fareOrderId, raisedBy: userId, reason, status: 'OPEN' } });
       const updated = await client.fareOrder.update({ where: { id: order.id }, data: { status: 'DISPUTED' } });
+      await client.fareOrder.update({ where: { id: order.id }, data: { retentionDeleteAfter: null } });
       await client.trip.update({ where: { id: trip.id }, data: { status: 'ORDER_DISPUTED', disputeLocked: true, version: { increment: 1 } } });
       await this.audit(client, trip.id, userId, 'fare-dispute', { fareOrderId, disputeId: dispute.id });
       return { fareOrder: updated, dispute, locked: true, duplicate: false };
     });
+  }
+
+  /**
+   * Trusted-operation boundary: no public controller calls this method. It
+   * closes a dispute atomically and restarts evidence retention only when a
+   * business outcome is known.
+   */
+  async resolveFareDisputeForRetention(
+    fareOrderId: string,
+    actorId: string,
+    outcome: 'AMOUNT_CONFIRMED' | 'RECONFIRM_REQUIRED' | 'UNRESOLVED',
+    resolvedAt = new Date(),
+  ) {
+    if (!['AMOUNT_CONFIRMED', 'RECONFIRM_REQUIRED', 'UNRESOLVED'].includes(outcome)) throw new BadRequestException('FARE_DISPUTE_RESOLUTION_INVALID');
+    return this.tx(async client => {
+      const order = await client.fareOrder.findUnique({ where: { id: fareOrderId } });
+      if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
+      const trip = await this.lockTrip(client, order.tripId);
+      if (order.status !== 'DISPUTED') throw new ConflictException('FARE_DISPUTE_NOT_OPEN');
+      const dispute = await client.fareDispute.findFirst({ where: { fareOrderId, status: 'OPEN' }, orderBy: { createdAt: 'desc' } });
+      if (!dispute) throw new ConflictException('FARE_DISPUTE_NOT_OPEN');
+      if (outcome === 'UNRESOLVED') {
+        await this.audit(client, trip.id, actorId, 'fare-dispute-unresolved', { fareOrderId, disputeId: dispute.id });
+        return { fareOrder: order, dispute, locked: true };
+      }
+      const retentionDeleteAfter = new Date(resolvedAt.getTime() + 90 * 24 * 60 * 60 * 1000);
+      await client.fareDispute.update({ where: { id: dispute.id }, data: { status: 'RESOLVED', resolution: outcome, resolvedAt } });
+      if (outcome === 'AMOUNT_CONFIRMED') {
+        const fareOrder = await client.fareOrder.update({ where: { id: fareOrderId }, data: { status: 'CONFIRMED', confirmedAt: resolvedAt, retentionDeleteAfter } });
+        await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_REVIEW, disputeLocked: false, version: { increment: 1 } } });
+        await this.audit(client, trip.id, actorId, 'fare-dispute-resolved', { fareOrderId, disputeId: dispute.id, outcome });
+        return { fareOrder, dispute: { ...dispute, status: 'RESOLVED', resolution: outcome, resolvedAt }, locked: false };
+      }
+      await client.fareOrderConfirmation.deleteMany({ where: { fareOrderId } });
+      const fareOrder = await client.fareOrder.update({ where: { id: fareOrderId }, data: { status: 'PENDING_CONFIRMATION', confirmedAt: null, retentionDeleteAfter } });
+      await client.trip.update({ where: { id: trip.id }, data: { status: TripStatus.PENDING_SETTLEMENT, disputeLocked: false, version: { increment: 1 } } });
+      await this.audit(client, trip.id, actorId, 'fare-dispute-reconfirm-required', { fareOrderId, disputeId: dispute.id, outcome });
+      return { fareOrder, dispute: { ...dispute, status: 'RESOLVED', resolution: outcome, resolvedAt }, locked: false };
+    });
+  }
+
+  /** Removes only bound evidence whose retention deadline has elapsed. */
+  async cleanupExpiredBoundScreenshots(now = new Date()): Promise<number> {
+    const candidates = await this.prisma.fareOrder.findMany({
+      where: { retentionDeleteAfter: { lte: now }, screenshotDeletedAt: null },
+      select: { id: true },
+    });
+    let cleaned = 0;
+    for (const candidate of candidates) {
+      const removed = await this.tx(async client => {
+        const order = await client.fareOrder.findUnique({ where: { id: candidate.id } });
+        if (!order) return false;
+        const trip = await this.lockTrip(client, order.tripId);
+        const current = await client.fareOrder.findUnique({ where: { id: candidate.id } });
+        if (!current || current.screenshotDeletedAt || !current.retentionDeleteAfter || new Date(current.retentionDeleteAfter) > now) return false;
+        const openDispute = await client.fareDispute.findFirst({ where: { fareOrderId: current.id, status: 'OPEN' } });
+        if (openDispute) return false;
+        try {
+          await this.storage.deleteObject(current.screenshotKey);
+        } catch (error: any) {
+          if (Number(error?.code ?? error?.statusCode) !== 612) {
+            await this.audit(client, trip.id, '', 'fare-screenshot-retention-delete-failed', { fareOrderId: current.id, error: 'STORAGE_DELETE_FAILED' });
+            return false;
+          }
+        }
+        const updated = await client.fareOrder.updateMany({
+          where: { id: current.id, screenshotDeletedAt: null, retentionDeleteAfter: { lte: now } },
+          data: { screenshotDeletedAt: now },
+        });
+        if (updated.count !== 1) return false;
+        await this.audit(client, trip.id, '', 'fare-screenshot-retention-deleted', { fareOrderId: current.id });
+        return true;
+      });
+      if (removed) cleaned += 1;
+    }
+    return cleaned;
   }
 
   async paymentMark(fareOrderId: string, userId: string, dto: PaymentMarkDto = {}) {
