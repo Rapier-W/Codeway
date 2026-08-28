@@ -1,7 +1,7 @@
-// 閸氬矁鐭剧悰灞芥倵缁旑垱鏆熼幑顔肩氨閸╄櫣鍤庨敍鍦stgreSQL閿?
-// 鐎瑰綊鍣虹憴鍕灟閿涙瓖rip.capacity 閸欘亣鍏橀弰?3 閹?4閿涘奔绗栭幀璁虫眽閺佹澘鎯堥崣鎴濆礋娴滄亽鈧?
-// Prisma schema 閺冪姵纭剁悰銊ㄦ彧 CHECK 缁撅附娼敍?|4閵嗕胶濮搁幀?鐟欐帟澹?鐢厺缍呴崪灞惧腹閼芥劗鎮婇悽杈ㄧ墡妤?
-// 閸︺劌绨查悽銊ョ湴娑?prisma/migrations/20260824190000_trip_domain_checks 娑擃厼鍙￠崥灞藉繁閸掕翰鈧?
+// 鍚岃矾琛屽悗绔暟鎹簱鍩虹嚎锛圥ostgreSQL锛?
+// 瀹归噺瑙勫垯锛歍rip.capacity 鍙兘鏄?3 鎴?4锛屼笖鎬讳汉鏁板惈鍙戝崟浜恒€?
+// Prisma schema 鏃犳硶琛ㄨ揪 CHECK 绾︽潫锛?|4銆佺姸鎬?瑙掕壊/甯綅鍜屾帹鑽愮悊鐢辨牎楠?
+// 鍦ㄥ簲鐢ㄥ眰涓?prisma/migrations/20260824190000_trip_domain_checks 涓叡鍚屽己鍒躲€?
 
 generator client {
   provider = "prisma-client-js"
@@ -15,111 +15,113 @@ datasource db {
 model User {
   id              String   @id @default(uuid())
   phone           String?  @unique
-  phoneVerified   Boolean  @default(false) // 閺堫亜鐣幋鎰閺堝搫褰挎宀冪槈閸欘亣鍏樺ù蹇氼潔
-  studentVerified Boolean  @default(false) // 鐎涳妇鏁撶拋銈堢槈娴犲懍淇婃禒缁樼垼缁涙拝绱濇稉宥嗗閹?
+  phoneVerified   Boolean  @default(false) // 鏈畬鎴愭墜鏈哄彿楠岃瘉鍙兘娴忚
+  studentVerified Boolean  @default(false) // 瀛︾敓璁よ瘉浠呬俊浠绘爣绛撅紝涓嶆嫤鎴?
   nickname        String?
   gender          String?
   creditScore     Int      @default(100)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  createdTrips  Trip[]             @relation("TripCreator")
-  memberships   TripMember[]
-  confirmations TripConfirmation[]
-  sessions      Session[]
-  chatMessages  ChatMessage[]
-  farePlanDecisions FarePlanChangeDecision[]
+  createdTrips            Trip[]                   @relation("TripCreator")
+  memberships             TripMember[]
+  confirmations           TripConfirmation[]
+  sessions                Session[]
+  chatMessages            ChatMessage[]
+  farePlanConfirmations   FarePlanConfirmation[]
+  farePlanChangeRequests  FarePlanChangeRequest[]
+  farePlanChangeDecisions FarePlanChangeDecision[]
 
   @@map("users")
 }
 
 model Trip {
-  id          String   @id @default(uuid())
-  creatorId   String
-  creator     User     @relation("TripCreator", fields: [creatorId], references: [id])
-  origin      String
-  destination String
-  departTime  DateTime
-  capacity    Int // 閸欘亜鍘戠拋?3 閹?4閿涘本鈧姹夐弫鏉挎儓閸欐垵宕熸禍鐚寸幢鎼存梻鏁ょ仦?+ SQL CHECK 瀵搫鍩?
-  feePlan     Json? // 闁叉垿顤傛稉鈧瀣殻閺佹澘鍨?
-  femaleOnly  Boolean  @default(false)
-  status      String   @default("RECRUITING") // 閹锋稑瀚欐稉?閳?閸欏苯鎮滅涵顔款吇娑?閳?瀹稿弶鍨氶崶?閳?瀵板懎褰ㄦ潪?閳?瀹告彃褰ㄦ潪?閳?鐞涘瞼鈻肩紒鎾存将瀵板懐绮ㄧ粻?閳?缂佹挾鐣荤€瑰本鍨?閳?瀵板懓鐦庢禒?閳?瀹告彃缍婂?
-  version     Int      @default(0) // 娑旀劘顫囬柨渚婄礉閻樿埖鈧礁褰夐弴鏉戠箑妞ょ粯鐗庢?
-  disputeLocked Boolean @default(false)
-  createRequestKey String? @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(uuid())
+  creatorId        String
+  creator          User     @relation("TripCreator", fields: [creatorId], references: [id])
+  origin           String
+  destination      String
+  departTime       DateTime
+  capacity         Int // 鍙厑璁?3 鎴?4锛屾€讳汉鏁板惈鍙戝崟浜猴紱搴旂敤灞?+ SQL CHECK 寮哄埗
+  feePlan          Json? // 閲戦涓€寰嬫暣鏁板垎
+  femaleOnly       Boolean  @default(false)
+  status           String   @default("RECRUITING") // 鎷涘嫙涓?鈫?鍙屽悜纭涓?鈫?宸叉垚鍥?鈫?寰呭彨杞?鈫?宸插彨杞?鈫?琛岀▼缁撴潫寰呯粨绠?鈫?缁撶畻瀹屾垚 鈫?寰呰瘎浠?鈫?宸插綊妗?
+  version          Int      @default(0) // 涔愯閿侊紝鐘舵€佸彉鏇村繀椤绘牎楠?
+  disputeLocked    Boolean  @default(false)
+  createRequestKey String?  @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  members         TripMember[]
-  confirmations   TripConfirmation[]
-  recommendations RecommendationDecision[]
-  rideRecords     RideRecord[]
-  vehicleUpdates  VehicleUpdate[]
-  fareOrders      FareOrder[]
-  sosEvents       SosEvent[]
-  reviews         Review[]
-  reports         Report[]
-  chatMessages    ChatMessage[]
-  objectUploads   ObjectUpload[]
-  farePlanRevisions FarePlanRevision[]
+  members                TripMember[]
+  confirmations          TripConfirmation[]
+  recommendations        RecommendationDecision[]
+  rideRecords            RideRecord[]
+  vehicleUpdates         VehicleUpdate[]
+  fareOrders             FareOrder[]
+  sosEvents              SosEvent[]
+  reviews                Review[]
+  reports                Report[]
+  chatMessages           ChatMessage[]
+  objectUploads          ObjectUpload[]
+  farePlanRevisions      FarePlanRevision[]
   farePlanChangeRequests FarePlanChangeRequest[]
 
-  @@index([departTime]) // 閸掓銆冮幐?depart_time ASC
+  @@index([departTime]) // 鍒楄〃鎸?depart_time ASC
   @@map("trips")
 }
 
 model ObjectUpload {
-  id              String    @id @default(uuid())
-  purpose         String
-  provider        String
-  objectKey       String    @unique @map("object_key")
-  tripId          String    @map("trip_id")
-  trip            Trip      @relation(fields: [tripId], references: [id])
-  ownerId         String    @map("owner_id")
-  allowedMimeType String    @map("allowed_mime_type")
-  declaredSizeBytes Int     @map("declared_size_bytes")
-  maxSizeBytes    Int       @map("max_size_bytes")
-  requestKey      String    @unique @map("request_key")
-  expiresAt       DateTime  @map("expires_at")
-  claimedAt       DateTime? @map("claimed_at")
-  deletedAt       DateTime? @map("deleted_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id                String    @id @default(uuid())
+  purpose           String
+  provider          String
+  objectKey         String    @unique @map("object_key")
+  tripId            String    @map("trip_id")
+  trip              Trip      @relation(fields: [tripId], references: [id])
+  ownerId           String    @map("owner_id")
+  allowedMimeType   String    @map("allowed_mime_type")
+  declaredSizeBytes Int       @map("declared_size_bytes")
+  maxSizeBytes      Int       @map("max_size_bytes")
+  requestKey        String    @unique @map("request_key")
+  expiresAt         DateTime  @map("expires_at")
+  claimedAt         DateTime? @map("claimed_at")
+  deletedAt         DateTime? @map("deleted_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   @@index([expiresAt, claimedAt, deletedAt])
   @@map("object_uploads")
 }
 
 model TripMember {
-  id          String   @id @default(uuid())
-  tripId      String
-  trip        Trip     @relation(fields: [tripId], references: [id])
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  role        String   @default("MEMBER") // CREATOR | MEMBER
-  memberCount Int      @default(1) // 鐠囥儲鍨氶崨妯哄窗閻劌楠囨担宥嗘殶閿涙艾褰傞崡鏇氭眽=1閿涘苯濮為崗銉ㄢ偓?1 閹?2
-  joinRequestKey String? @unique // 鐎广垺鍩涚粩顖濐嚞濮瑰倸绠撶粵澶愭暛
-  joinedAt    DateTime @default(now())
+  id             String   @id @default(uuid())
+  tripId         String
+  trip           Trip     @relation(fields: [tripId], references: [id])
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  role           String   @default("MEMBER") // CREATOR | MEMBER
+  memberCount    Int      @default(1) // 璇ユ垚鍛樺崰鐢ㄥ骇浣嶆暟锛氬彂鍗曚汉=1锛屽姞鍏ヨ€?1 鎴?2
+  joinRequestKey String?  @unique // 瀹㈡埛绔姹傚箓绛夐敭
+  joinedAt       DateTime @default(now())
 
   confirmations TripConfirmation[]
 
-  @@unique([tripId, userId]) // 楠炲倻鐡戦敍姘倱娑撯偓閻劍鍩涢崷銊ユ倱娑撯偓鐞涘瞼鈻奸崣顏呮箒娑撯偓閺夆剝鍨氶崨妯款唶瑜?
+  @@unique([tripId, userId]) // 骞傜瓑锛氬悓涓€鐢ㄦ埛鍦ㄥ悓涓€琛岀▼鍙湁涓€鏉℃垚鍛樿褰?
   @@index([tripId, joinRequestKey])
   @@map("trip_members")
 }
 
 model TripConfirmation {
-  id             String      @id @default(uuid())
+  id             String     @id @default(uuid())
   tripId         String
-  trip           Trip        @relation(fields: [tripId], references: [id])
+  trip           Trip       @relation(fields: [tripId], references: [id])
   memberId       String
-  member         TripMember  @relation(fields: [memberId], references: [id])
+  member         TripMember @relation(fields: [memberId], references: [id])
   userId         String
-  user           User        @relation(fields: [userId], references: [id])
-  status         String      @default("CONFIRMED") // CONFIRMED | VOID閿涘牆娲栭柅鈧担婊冪熬閿涘绱眜serId 閸愭ぞ缍戠€涙顔岃箛鍛淬€忔稉?member.userId 娑撯偓閼?
-  confirmedAt    DateTime    @default(now())
-  retractUntil   DateTime? // 閺堚偓閸氬簼绔撮崥宥嗗灇閸涙鈥樼拋銈呯磻閸氼垳娈?15 缁夋帒寮介幃鏃傜崶閸?
-  idempotencyKey String?     @unique // 闁插秴顦茬涵顔款吇楠炲倻鐡?
-  createdAt      DateTime    @default(now())
+  user           User       @relation(fields: [userId], references: [id])
+  status         String     @default("CONFIRMED") // CONFIRMED | VOID锛堝洖閫€浣滃簾锛夛紱userId 鍐椾綑瀛楁蹇呴』涓?member.userId 涓€鑷?
+  confirmedAt    DateTime   @default(now())
+  retractUntil   DateTime? // 鏈€鍚庝竴鍚嶆垚鍛樼‘璁ゅ紑鍚殑 15 绉掑弽鎮旂獥鍙?
+  idempotencyKey String?    @unique // 閲嶅纭骞傜瓑
+  createdAt      DateTime   @default(now())
 
   @@map("trip_confirmations")
 }
@@ -128,7 +130,7 @@ model RecommendationDecision {
   id        String   @id @default(uuid())
   tripId    String
   trip      Trip     @relation(fields: [tripId], references: [id])
-  reasons   String[] // SQL CHECK 瀵搫鍩楅惂钘夋倳閸楁洩绱癟IME_CLOSE | RELIABLE | VERIFIED | OPEN_SLOT閿涘本娓舵径?3 娑擃亷绱濇稉宥呭閸濆秵甯撴惔?
+  reasons   String[] // SQL CHECK 寮哄埗鐧藉悕鍗曪細TIME_CLOSE | RELIABLE | VERIFIED | OPEN_SLOT锛屾渶澶?3 涓紝涓嶅奖鍝嶆帓搴?
   decidedAt DateTime @default(now())
 
   @@map("recommendation_decisions")
@@ -138,7 +140,7 @@ model AuditLog {
   id        String   @id @default(uuid())
   tripId    String?
   actorId   String?
-  action    String // confirm | form-group | withdraw | rollback | duplicate-request 缁?
+  action    String // confirm | form-group | withdraw | rollback | duplicate-request 绛?
   payload   Json?
   createdAt DateTime @default(now())
 
@@ -154,99 +156,174 @@ model RideRecord {
   platform    String
   mode        String   @default("MANUAL_FALLBACK")
   status      String   @default("WAITING_RIDE")
-  requestKey   String?  @unique
+  requestKey  String?  @unique
   createdAt   DateTime @default(now())
+
   @@index([tripId])
 }
 
 model VehicleUpdate {
-  id        String   @id @default(uuid())
-  tripId    String
-  trip      Trip     @relation(fields: [tripId], references: [id])
-  updatedBy String
-  requestKey String? @unique
-  plate     String
-  model     String?
-  color     String?
-  platform  String?
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  tripId     String
+  trip       Trip     @relation(fields: [tripId], references: [id])
+  updatedBy  String
+  requestKey String?  @unique
+  plate      String
+  model      String?
+  color      String?
+  platform   String?
+  createdAt  DateTime @default(now())
+
   @@index([tripId])
 }
 
 model FareOrder {
-  id                   String   @id @default(uuid())
-  tripId               String   @unique
-  trip                 Trip     @relation(fields: [tripId], references: [id])
-  submittedBy          String
-  totalAmountCents     Int
-  screenshotKey        String
-  screenshotMimeType   String
-  screenshotSizeBytes  Int
-  status               String   @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION | CONFIRMED | DISPUTED | MANUAL_REVIEW
-  createdAt            DateTime @default(now())
-  confirmedAt          DateTime?
-  updatedAt            DateTime @updatedAt
-  requestKey           String?  @unique @map("request_key")
-  sourceUploadId       String?  @unique @map("source_upload_id")
-  disputes             FareDispute[]
-  confirmations        FareOrderConfirmation[]
-  paymentMarks         PaymentMark[]
+  id                  String                  @id @default(uuid())
+  tripId              String                  @unique
+  trip                Trip                    @relation(fields: [tripId], references: [id])
+  submittedBy         String
+  totalAmountCents    Int
+  screenshotKey       String
+  screenshotMimeType  String
+  screenshotSizeBytes Int
+  status              String                  @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION | CONFIRMED | DISPUTED | MANUAL_REVIEW
+  createdAt           DateTime                @default(now())
+  confirmedAt         DateTime?
+  updatedAt           DateTime                @updatedAt
+  requestKey          String?                 @unique @map("request_key")
+  sourceUploadId      String?                 @unique @map("source_upload_id")
+  disputes            FareDispute[]
+  confirmations       FareOrderConfirmation[]
+  paymentMarks        PaymentMark[]
+
   @@index([status])
 }
 
+model FarePlanRevision {
+  id             String                  @id @default(uuid())
+  tripId         String
+  trip           Trip                    @relation(fields: [tripId], references: [id])
+  sequence       Int
+  plan           Json
+  status         String                  @default("PENDING_CONFIRMATION")
+  createdAt      DateTime                @default(now())
+  lockedAt       DateTime?
+  supersededAt   DateTime?
+  confirmations  FarePlanConfirmation[]
+  changeRequests FarePlanChangeRequest[]
+
+  @@unique([tripId, sequence])
+  @@index([tripId, status])
+  @@map("fare_plan_revisions")
+}
+
+model FarePlanConfirmation {
+  id             String           @id @default(uuid())
+  revisionId     String
+  revision       FarePlanRevision @relation(fields: [revisionId], references: [id])
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+  status         String           @default("CONFIRMED")
+  idempotencyKey String?          @unique
+  confirmedAt    DateTime?
+  voidedAt       DateTime?
+
+  @@unique([revisionId, userId])
+  @@map("fare_plan_confirmations")
+}
+
+model FarePlanChangeRequest {
+  id             String                   @id @default(uuid())
+  tripId         String
+  trip           Trip                     @relation(fields: [tripId], references: [id])
+  baseRevisionId String
+  baseRevision   FarePlanRevision         @relation(fields: [baseRevisionId], references: [id])
+  proposedPlan   Json
+  reason         String?
+  requestedBy    String
+  requester      User                     @relation(fields: [requestedBy], references: [id])
+  status         String                   @default("PENDING")
+  requestKey     String                   @unique
+  expiresAt      DateTime
+  appliedAt      DateTime?
+  createdAt      DateTime                 @default(now())
+  decisions      FarePlanChangeDecision[]
+
+  @@index([tripId, status])
+  @@map("fare_plan_change_requests")
+}
+
+model FarePlanChangeDecision {
+  id             String                @id @default(uuid())
+  requestId      String
+  request        FarePlanChangeRequest @relation(fields: [requestId], references: [id])
+  userId         String
+  user           User                  @relation(fields: [userId], references: [id])
+  decision       String                @default("PENDING")
+  decidedAt      DateTime?
+  idempotencyKey String?               @unique
+
+  @@unique([requestId, userId])
+  @@map("fare_plan_change_decisions")
+}
+
 model FareDispute {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   fareOrderId String
   fareOrder   FareOrder @relation(fields: [fareOrderId], references: [id])
   raisedBy    String
   reason      String
-  status      String   @default("OPEN")
-  createdAt   DateTime @default(now())
+  status      String    @default("OPEN")
+  createdAt   DateTime  @default(now())
 }
 
 model FareOrderConfirmation {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   fareOrderId String
   fareOrder   FareOrder @relation(fields: [fareOrderId], references: [id])
   userId      String
-  confirmedAt DateTime @default(now())
+  confirmedAt DateTime  @default(now())
+
   @@unique([fareOrderId, userId])
 }
 
 model PaymentMark {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   fareOrderId String
   fareOrder   FareOrder @relation(fields: [fareOrderId], references: [id])
   userId      String
   amountCents Int?
-  status      String   @default("MARKED")
-  markedAt    DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status      String    @default("MARKED")
+  markedAt    DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
   @@unique([fareOrderId, userId])
 }
 
 model EmergencyContact {
-  id        String   @id @default(uuid())
-  userId    String
-  name      String
-  phone     String
-  active    Boolean  @default(true)
-  requestKey String? @unique
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  name       String
+  phone      String
+  active     Boolean  @default(true)
+  requestKey String?  @unique
+  createdAt  DateTime @default(now())
+
   @@index([userId])
 }
 
 model SosEvent {
-  id        String   @id @default(uuid())
-  tripId    String
-  userId    String
-  latitude  Float?
-  longitude Float?
-  note      String?
-  requestKey String? @unique
-  status    String   @default("RECORDED")
-  createdAt DateTime @default(now())
-  trip      Trip     @relation(fields: [tripId], references: [id])
+  id         String   @id @default(uuid())
+  tripId     String
+  userId     String
+  latitude   Float?
+  longitude  Float?
+  note       String?
+  requestKey String?  @unique
+  status     String   @default("RECORDED")
+  createdAt  DateTime @default(now())
+  trip       Trip     @relation(fields: [tripId], references: [id])
+
   @@index([tripId])
 }
 
@@ -258,6 +335,7 @@ model NotificationEvent {
   payload   Json
   status    String   @default("PENDING")
   createdAt DateTime @default(now())
+
   @@index([tripId])
 }
 
@@ -275,33 +353,36 @@ model Review {
   anonymous     Boolean  @default(false)
   requestKey    String?  @unique
   createdAt     DateTime @default(now())
+
   @@unique([tripId, reviewerId, targetUserId])
 }
 
 model Report {
   id           String   @id @default(uuid())
   tripId       String?
-  trip          Trip?   @relation(fields: [tripId], references: [id])
-  reporterId    String
-  targetUserId  String?
-  type          String
-  description   String
-  evidenceKey   String?
-  status        String   @default("OPEN")
-  createdAt     DateTime @default(now())
+  trip         Trip?    @relation(fields: [tripId], references: [id])
+  reporterId   String
+  targetUserId String?
+  type         String
+  description  String
+  evidenceKey  String?
+  status       String   @default("OPEN")
+  createdAt    DateTime @default(now())
+
   @@index([tripId])
 }
 
 model AnalyticsEvent {
-  id           String   @id @default(uuid())
-  userId       String?
-  eventKey     String
-  eventType    String
-  tripId       String?
-  reasonCodes  String[]
-  ruleVersion  String
-  payload      Json
-  createdAt    DateTime @default(now())
+  id          String   @id @default(uuid())
+  userId      String?
+  eventKey    String
+  eventType   String
+  tripId      String?
+  reasonCodes String[]
+  ruleVersion String
+  payload     Json
+  createdAt   DateTime @default(now())
+
   @@unique([eventKey])
   @@index([tripId])
 }
@@ -337,85 +418,18 @@ model Session {
 }
 
 model ChatMessage {
-  id          String   @id @default(uuid())
-  tripId      String
-  trip        Trip     @relation(fields: [tripId], references: [id])
-  senderId    String
-  sender      User     @relation(fields: [senderId], references: [id])
-  kind        String   @default("TEXT") // TEXT | CONFIRMATION_CARD
-  text        String   @db.VarChar(500) // 鏂囨湰闀垮害涓婇檺锛岄槻姝㈣秴闀挎秷鎭?
-  payload     Json? // 缁撴瀯鍖栫‘璁ゅ崱鐗囩瓑闄勫姞鏁版嵁
-  clientKey   String? // 瀹㈡埛绔箓绛夐敭锛岄噸澶嶅彂閫佽繑鍥為娆＄粨鏋?
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id])
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id])
+  kind      String   @default("TEXT") // TEXT | CONFIRMATION_CARD
+  text      String   @db.VarChar(500) // 文本长度上限，防止超长消息
+  payload   Json? // 结构化确认卡片等附加数据
+  clientKey String? // 客户端幂等键，重复发送返回首次结果
+  createdAt DateTime @default(now())
 
-  @@unique([tripId, clientKey]) // 骞傜瓑锛氬悓涓€琛岀▼鍐呭悓涓€瀹㈡埛绔敭鍙惤涓€鏉?
-  @@index([tripId, createdAt]) // 鍘嗗彶娑堟伅鎸夋椂闂村垎椤?
+  @@unique([tripId, clientKey]) // 幂等：同一行程内同一客户端键只落一条
+  @@index([tripId, createdAt]) // 历史消息按时间分页
   @@map("chat_messages")
-}
-
-/// 阶段 2：成团后费用分摊修订。每次方案变更产生新 revision，旧 revision 标记 SUPERSEDED。
-model FarePlanRevision {
-  id          String   @id @default(uuid())
-  tripId      String
-  trip        Trip     @relation(fields: [tripId], references: [id])
-  mode        String   // EQUAL | FIXED | CUSTOM
-  allocations Json?    // CUSTOM 模式下 { userId: percentage }，总和必须 100
-  amountCents Int?     // FIXED 模式下的固定金额（整数分）
-  status      String   @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION | CONFIRMED | SUPERSEDED
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  confirmations   FarePlanConfirmation[]
-  changeRequests   FarePlanChangeRequest[]
-
-  @@index([tripId])
-  @@map("fare_plan_revisions")
-}
-
-/// 方案确认：每个成员对某 revision 的确认记录，成团后全员确认才锁定。
-model FarePlanConfirmation {
-  id          String   @id @default(uuid())
-  revisionId  String
-  revision    FarePlanRevision @relation(fields: [revisionId], references: [id])
-  userId      String
-  confirmedAt DateTime @default(now())
-  requestKey  String?  @unique // 幂等键
-
-  @@unique([revisionId, userId])
-  @@map("fare_plan_confirmations")
-}
-
-/// 变更申请：发单人发起，全体成员表决。任一拒绝则申请失效，旧方案不变。
-model FarePlanChangeRequest {
-  id              String   @id @default(uuid())
-  tripId          String
-  trip            Trip     @relation(fields: [tripId], references: [id])
-  revisionId      String
-  revision        FarePlanRevision @relation(fields: [revisionId], references: [id])
-  requestedBy     String
-  status          String   @default("PENDING") // PENDING | APPROVED | REJECTED | EXPIRED
-  expiresAt       DateTime // 24 小时后过期
-  requestKey      String?  @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  decisions       FarePlanChangeDecision[]
-
-  @@index([tripId])
-  @@map("fare_plan_change_requests")
-}
-
-/// 变更决策：每个成员对变更申请的批准或拒绝。
-model FarePlanChangeDecision {
-  id              String   @id @default(uuid())
-  changeRequestId String
-  changeRequest   FarePlanChangeRequest @relation(fields: [changeRequestId], references: [id])
-  userId          String
-  user            User     @relation(fields: [userId], references: [id])
-  decision        String   // APPROVED | REJECTED
-  requestKey      String?  @unique
-  createdAt       DateTime @default(now())
-
-  @@unique([changeRequestId, userId])
-  @@map("fare_plan_change_decisions")
 }

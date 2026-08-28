@@ -1,46 +1,14 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { CurrentUserId } from '../common/current-user.decorator';
 import { IdempotencyKey } from '../common/idempotency-key.decorator';
 import { FarePlanService } from './fare-plan.service';
-import { FarePlanDto } from './dto/fare-plan.dto';
-import { FarePlanDecisionDto } from './dto/fare-plan-decision.dto';
+import { CreateFarePlanChangeRequestDto, FarePlanDecisionDto } from './dto/fare-plan.dto';
 
-@Controller('trips/:id/fare-plan')
+@Controller()
 export class FarePlanController {
-  constructor(private readonly farePlan: FarePlanService) {}
-
-  /** 获取行程当前费用方案。 */
-  @Get()
-  getFarePlan(@Param('id') tripId: string, @CurrentUserId(false) userId?: string) {
-    return this.farePlan.getFarePlan(tripId);
-  }
-
-  /** 发单人发起费用方案变更。 */
-  @Post('change-requests')
-  createChangeRequest(
-    @Param('id') tripId: string,
-    @CurrentUserId() userId: string,
-    @Body() dto: FarePlanDto,
-    @IdempotencyKey() requestKey: string,
-  ) {
-    return this.farePlan.createChangeRequest(tripId, userId, dto, requestKey);
-  }
-
-  /** 成员表决费用方案变更。 */
-  @Post('change-requests/:changeRequestId/decisions')
-  decideChangeRequest(
-    @Param('id') tripId: string,
-    @Param('changeRequestId') changeRequestId: string,
-    @CurrentUserId() userId: string,
-    @Body() dto: FarePlanDecisionDto,
-    @IdempotencyKey() requestKey: string,
-  ) {
-    return this.farePlan.decideChangeRequest(changeRequestId, userId, dto.decision as 'APPROVED' | 'REJECTED', requestKey);
-  }
-
-  /** 查看当前变更申请状态及各成员表决情况。 */
-  @Get('change-requests/current')
-  getCurrentChangeRequest(@Param('id') tripId: string, @CurrentUserId() userId: string) {
-    return this.farePlan.getChangeRequest(tripId, userId);
-  }
+  constructor(private readonly service: FarePlanService) {}
+  @Get('trips/:tripId/fare-plan') get(@Param('tripId') tripId: string, @CurrentUserId() userId: string) { return this.service.getFarePlan(tripId, userId); }
+  @Post('trips/:tripId/fare-plan-change-requests') create(@Param('tripId') tripId: string, @CurrentUserId() userId: string, @Body() dto: CreateFarePlanChangeRequestDto, @IdempotencyKey() key: string) { return this.service.createChangeRequest(tripId, userId, dto, key); }
+  @Post('fare-plan-change-requests/:id/decisions') decide(@Param('id') id: string, @CurrentUserId() userId: string, @Body() dto: FarePlanDecisionDto, @IdempotencyKey() key: string) { return this.service.decideChangeRequest(id, userId, dto, key); }
+  @Post('trips/:tripId/fare-plan-revisions/:revisionId/confirm') confirm(@Param('tripId') tripId: string, @Param('revisionId') revisionId: string, @CurrentUserId() userId: string, @IdempotencyKey() key: string) { return this.service.confirmRevision(tripId, revisionId, userId, key); }
 }

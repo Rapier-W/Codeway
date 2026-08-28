@@ -1,15 +1,11 @@
-import { IsIn, IsInt, IsObject, IsOptional, IsString, Min } from 'class-validator';
+import { IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class FarePlanDto {
-  @IsIn(['EQUAL', 'FIXED', 'CUSTOM'], { message: 'FARE_PLAN_MODE_INVALID' })
-  mode!: 'EQUAL' | 'FIXED' | 'CUSTOM';
-
-  @IsOptional()
-  @IsObject()
-  allocations?: Record<string, number>;
-
-  @IsOptional()
-  @IsInt({ message: 'FARE_AMOUNT_INVALID' })
-  @Min(0, { message: 'FARE_AMOUNT_INVALID' })
-  amountCents?: number;
+  @IsIn(['EQUAL', 'FIXED', 'CUSTOM']) mode!: string;
+  @IsOptional() @IsObject() allocations?: Record<string, number>;
 }
+export class CreateFarePlanChangeRequestDto {
+  @IsObject() proposedPlan!: FarePlanDto;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+export class FarePlanDecisionDto { @IsIn(['APPROVED', 'REJECTED']) decision!: string; }
