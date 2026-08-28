@@ -35,6 +35,7 @@ export interface Trip {
   retractUntil?: string
   confirmationId?: string
   fareOrderId?: string
+  creatorId?: string
   members?: TripMember[]
 }
 
@@ -47,7 +48,38 @@ export interface MessagePage { messages: ChatMessage[]; hasMore: boolean; nextCu
 export interface CostShare { mode: 'EQUAL'|'FIXED'|'CUSTOM'; amountCents: number; confirmed: boolean }
 export interface Vehicle { plate: string; model?: string; color?: string }
 export interface RideLaunch { launch: { supported: boolean; copyRouteRequired: boolean }; status?: string }
-export interface Order { id: string; tripId: string; status?: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare; totalAmountCents?: number; members?: TripMember[] }
+export interface Order { id: string; tripId: string; status?: string; disputed: boolean; settlementLocked: boolean; costShare: CostShare; totalAmountCents?: number; members?: TripMember[]; createdAt?: string | null; confirmedAt?: string | null; screenshotAvailable?: boolean; screenshotMimeType?: string; screenshotSizeBytes?: number; retentionDeleteAfter?: string | null; screenshotDeletedAt?: string | null }
+
+// 阶段 2：成团后费用方案修订。
+export interface FarePlanRevision {
+  id: string
+  mode: 'EQUAL' | 'FIXED' | 'CUSTOM'
+  allocations?: Record<string, number> | null
+  amountCents?: number | null
+  status: 'PENDING_CONFIRMATION' | 'CONFIRMED' | 'SUPERSEDED'
+  confirmations: Array<{ userId: string; confirmedAt: string | null }>
+}
+
+export interface FarePlan {
+  tripId: string
+  feePlan: { mode: 'EQUAL' | 'FIXED' | 'CUSTOM'; allocations?: Record<string, number> | null; amountCents?: number | null }
+  currentRevision: FarePlanRevision | null
+}
+
+export interface FareChangeRequest {
+  id: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+  expiresAt: string
+  requestedBy: string
+  revision: FarePlanRevision
+  decisions: Array<{ userId: string; decision: 'APPROVED' | 'REJECTED' }>
+}
+
+export interface FarePlanInput {
+  mode: 'EQUAL' | 'FIXED' | 'CUSTOM'
+  allocations?: Record<string, number>
+  amountCents?: number
+}
 export interface FareScreenshotUpload { uploadId: string; objectKey: string; uploadUrl: string; uploadToken: string; expiresAt: string }
 export interface FareScreenshotView { url: string; expiresAt: string }
 export interface EmergencyContact { id?: string; name: string; phone: string }
@@ -86,4 +118,9 @@ export interface ApiClient {
   openRideWithKey(tripId: string, platform: string, idempotencyKey: string): Promise<unknown>
   addEmergencyContactWithKey(input: EmergencyContact, idempotencyKey: string): Promise<unknown>
   submitReview(input: ReviewInput, idempotencyKey: string): Promise<void>
+  // 阶段 2：成团后费用方案修订。
+  getFarePlan(tripId: string): Promise<FarePlan>
+  createFareChangeRequest(tripId: string, input: FarePlanInput, idempotencyKey: string): Promise<{ id: string; duplicate: boolean }>
+  decideFareChangeRequest(tripId: string, changeRequestId: string, decision: 'APPROVED' | 'REJECTED', idempotencyKey: string): Promise<{ changeRequestStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'; duplicate: boolean }>
+  getCurrentFareChangeRequest(tripId: string): Promise<{ changeRequest: FareChangeRequest | null }>
 }

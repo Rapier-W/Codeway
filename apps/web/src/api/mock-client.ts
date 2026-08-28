@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient, type CreateTripInput, type FareScreenshotUpload, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
+import { ApiError, type ApiClient, type CreateTripInput, type FareScreenshotUpload, type FarePlan, type FarePlanInput, type FareChangeRequest, type FarePlanRevision, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
 
 const sampleTrips: Trip[] = [
   { id: 'trip-1', origin: '大学城南门', destination: '火车站', departureAt: '2026-08-25T20:00:00+08:00', capacity: 4, activeMemberCount: 1, status: 'RECRUITING', recommendationReasons: ['TIME_CLOSE', 'VERIFIED', 'AVAILABLE'] },
@@ -111,6 +111,49 @@ export class MockApiClient implements ApiClient {
   async openRideWithKey(_tripId: string, _platform: string, _key: string) {}
   async addEmergencyContactWithKey(_input: EmergencyContact, _key: string) {}
   async submitReview(_input: import('./contracts').ReviewInput, _idempotencyKey: string) {}
+
+  // 阶段 2：费用方案修订（内存实现，仅用于开发与测试）。
+  private readonly farePlans = new Map<string, FarePlan>()
+  private readonly changeRequests = new Map<string, FareChangeRequest>()
+  private revisionSeq = 0
+
+  async getFarePlan(tripId: string): Promise<FarePlan> {
+    return this.farePlans.get(tripId) ?? { tripId, feePlan: { mode: 'EQUAL', allocations: null, amountCents: null }, currentRevision: null }
+  }
+  async getCurrentFareChangeRequest(tripId: string): Promise<{ changeRequest: FareChangeRequest | null }> {
+    return { changeRequest: this.changeRequests.get(tripId) ?? null }
+  }
+  async createFareChangeRequest(tripId: string, input: FarePlanInput, _idempotencyKey: string): Promise<{ id: string; duplicate: boolean }> {
+    if (!['EQUAL', 'FIXED', 'CUSTOM'].includes(input.mode)) throw new ApiError('FARE_PLAN_MODE_INVALID', '费用方案模式无效', 400)
+    if (input.mode === 'FIXED' && (!Number.isInteger(input.amountCents) || (input.amountCents ?? -1) < 0)) throw new ApiError('FARE_AMOUNT_INVALID', '金额填写有误', 400)
+    if (input.mode === 'CUSTOM') {
+      const total = Object.values(input.allocations ?? {}).reduce((sum, v) => sum + Number(v), 0)
+      if (total !== 100) throw new ApiError('FARE_PLAN_PERCENT_TOTAL_INVALID', '自定义分摊比例之和必须为 100', 400)
+    }
+    const revision: FarePlanRevision = { id: `rev-${++this.revisionSeq}`, mode: input.mode, allocations: input.allocations ?? null, amountCents: input.amountCents ?? null, status: 'PENDING_CONFIRMATION', confirmations: [] }
+    const changeRequest: FareChangeRequest = { id: `cr-${this.revisionSeq}`, status: 'PENDING', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), requestedBy: 'user-demo', revision, decisions: [] }
+    this.changeRequests.set(tripId, changeRequest)
+    return { id: changeRequest.id, duplicate: false }
+  }
+  async decideFareChangeRequest(tripId: string, changeRequestId: string, decision: 'APPROVED' | 'REJECTED', _idempotencyKey: string): Promise<{ changeRequestStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'; duplicate: boolean }> {
+    const existing = this.changeRequests.get(tripId)
+    if (!existing || existing.id !== changeRequestId) throw new ApiError('FARE_PLAN_CHANGE_REQUEST_NOT_FOUND', '费用变更申请不存在', 404)
+    if (existing.status !== 'PENDING') throw new ApiError('FARE_PLAN_CHANGE_ALREADY_RESOLVED', '该费用变更申请已结束', 409)
+    // 重新声明为完整类型，解除上方状态守卫造成的属性收窄，便于后续展开覆盖 status。
+    const cr: FareChangeRequest = existing
+    if (new Date(cr.expiresAt).getTime() <= Date.now()) {
+      const expired: FareChangeRequest = { id: cr.id, status: 'EXPIRED', expiresAt: cr.expiresAt, requestedBy: cr.requestedBy, revision: cr.revision, decisions: cr.decisions }
+      this.changeRequests.set(tripId, expired)
+      return { changeRequestStatus: 'EXPIRED', duplicate: false }
+    }
+    const decisions = cr.decisions.some((d) => d.userId === 'user-demo')
+      ? cr.decisions
+      : [...cr.decisions, { userId: 'user-demo', decision }]
+    const changeRequestStatus = decision === 'REJECTED' ? 'REJECTED' as const : 'APPROVED' as const
+    const updated: FareChangeRequest = { id: cr.id, status: changeRequestStatus, expiresAt: cr.expiresAt, requestedBy: cr.requestedBy, revision: cr.revision, decisions }
+    this.changeRequests.set(tripId, updated)
+    return { changeRequestStatus, duplicate: false }
+  }
 
   private findTrip(tripId: string) {
     return structuredClone(this.findTripReference(tripId))

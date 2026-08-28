@@ -50,6 +50,19 @@
 | POST | `/reports` | 举报 |
 | POST | `/analytics/events` | 埋点和推荐决策记录 |
 
+### 费用方案修订（阶段 2：成团后费用变更）
+
+后端已提供行程维度的费用方案变更接口，前端在 `FarePlanView`（`/trips/:id/fare-plan`）接入：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/trips/:id/fare-plan` | 获取当前生效费用方案与当前 revision |
+| POST | `/trips/:id/fare-plan/change-requests` | 仅发单人发起变更；创建 PENDING 申请与 24h 过期；同行程已有 PENDING 申请则拒绝 |
+| POST | `/trips/:id/fare-plan/change-requests/:id/decisions` | 成员表决 APPROVED/REJECTED；全员同意才应用（旧确认作废、旧 revision 标记 SUPERSEDED、新 revision 标记 CONFIRMED、Trip.feePlan 更新），任一拒绝或过期则原方案不变 |
+| GET | `/trips/:id/fare-plan/change-requests/current` | 当前变更申请状态与各成员表决情况 |
+
+前端 `ApiClient` 对应方法：`getFarePlan`、`createFareChangeRequest`、`decideFareChangeRequest`、`getCurrentFareChangeRequest`。该流程**不触发成团 15 秒反悔状态机**，且全程可审计、不可删旧确认。
+
 ### 私有费用截图上传链路
 
 1. Web/PWA 本地预检 JPEG、PNG、WebP 与不超过 10MB；预检只改善体验，后端和对象存储才是可信边界。
@@ -58,7 +71,9 @@
 4. 创建订单只提交 `screenshotUploadId`。后端以 `ObjectUpload` 归属、有效期、未消费状态和对象存储 `stat` 的真实 key/MIME/大小核验；条件更新只允许一个请求消费意图。
 5. 行程成员点击“查看车费截图”后才请求短时 URL。前端不缓存 URL，打开新窗口时使用 `noopener,noreferrer`。
 
-上传意图仅允许 JPEG/PNG/WebP，最大 `10 * 1024 * 1024` 字节。失败重试必须重新申请上传意图；过期、未消费且用途为 `FARE_SCREENSHOT` 的对象由后端每小时清理。已绑定订单的对象绝不参与孤儿清理；其 90 天保留/争议处理后再保留 90 天政策仍等待后续归档任务落地。
+上传意图仅允许 JPEG/PNG/WebP，最大 `10 * 1024 * 1024` 字节。失败重试必须重新申请上传意图；过期、未消费且用途为 `FARE_SCREENSHOT` 的对象由后端每小时清理。已绑定订单的对象绝不参与孤儿清理；其 **90 天保留 / 争议处理后再保留 90 天** 政策已实现：确认订单时写入 `retentionDeleteAfter = confirmedAt + 90 天`，争议时清空为 `null` 并标记 `screenshotDeletedAt`，结案后从 `resolvedAt` 重计。
+
+`GET /fare-orders/:id`（订单详情）现已返回 `retentionDeleteAfter` 与 `screenshotDeletedAt` 两个字段（均为 ISO 字符串或 `null`），前端 `Order` 据此展示“车费截图留存”状态。`GET /fare-orders/:id/screenshot` 在 `screenshotDeletedAt` 存在时返回 `SCREENSHOT_RETENTION_EXPIRED`，前端据此提示“截图已过期或已删除，无法查看”。
 
 相关迁移：`20260826090000_kodo_fare_uploads`、`20260826100000_object_upload_declared_size`。
 

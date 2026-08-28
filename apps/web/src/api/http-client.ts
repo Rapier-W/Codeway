@@ -1,4 +1,4 @@
-import { ApiError, type ApiClient, type CreateTripInput, type FareScreenshotUpload, type FareScreenshotView, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type ChatMessage, type Order, type ReviewInput, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
+import { ApiError, type ApiClient, type CreateTripInput, type FareScreenshotUpload, type FareScreenshotView, type FarePlan, type FarePlanInput, type FareChangeRequest, type JoinRequest, type JoinTripInput, type SessionUser, type SosInput, type Trip, type ChatMessage, type Order, type ReviewInput, type MessagePage, type Vehicle, type EmergencyContact } from './contracts'
 import { resolveErrorMessage } from './error-messages'
 
 export class HttpApiClient implements ApiClient {
@@ -103,6 +103,20 @@ export class HttpApiClient implements ApiClient {
       safety: dimensions.safety,
       politeness: dimensions.fairness,
     }, idempotencyKey)
+  }
+
+  // 阶段 2：费用方案修订。行程维度，挂在 /trips/:id/fare-plan 下。
+  getFarePlan(tripId: string) {
+    return this.request<FarePlan>(`/trips/${encodeURIComponent(tripId)}/fare-plan`)
+  }
+  createFareChangeRequest(tripId: string, input: FarePlanInput, idempotencyKey: string) {
+    return this.write<{ id: string; duplicate: boolean }>(`/trips/${encodeURIComponent(tripId)}/fare-plan/change-requests`, input, idempotencyKey)
+  }
+  decideFareChangeRequest(tripId: string, changeRequestId: string, decision: 'APPROVED' | 'REJECTED', idempotencyKey: string) {
+    return this.write<{ changeRequestStatus: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'; duplicate: boolean }>(`/trips/${encodeURIComponent(tripId)}/fare-plan/change-requests/${encodeURIComponent(changeRequestId)}/decisions`, { decision }, idempotencyKey)
+  }
+  getCurrentFareChangeRequest(tripId: string) {
+    return this.request<{ changeRequest: FareChangeRequest | null }>(`/trips/${encodeURIComponent(tripId)}/fare-plan/change-requests/current`)
   }
 
   private authHeaders(): Record<string, string> {

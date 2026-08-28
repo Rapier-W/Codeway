@@ -6,7 +6,7 @@ import TripCreateView from '../views/TripCreateView.vue'
 import TripDetailView from '../views/TripDetailView.vue'
 import ChatView from '../views/ChatView.vue'; import MyTripsView from '../views/MyTripsView.vue'; import RideView from '../views/RideView.vue'; import OrderView from '../views/OrderView.vue'; import ReviewView from '../views/ReviewView.vue'
 import { useSessionStore } from '../stores/session'
-import SosView from '../views/SosView.vue'; import ProfileView from '../views/ProfileView.vue'
+import SosView from '../views/SosView.vue'; import ProfileView from '../views/ProfileView.vue'; import FarePlanView from '../views/FarePlanView.vue'; import DisclaimerView from '../views/DisclaimerView.vue'
 
 const Placeholder = (title: string) => ({ template: `<main class="page"><h1>${title}</h1><p>功能正在接入中。</p></main>` })
 
@@ -23,8 +23,10 @@ export const router = createRouter({
     { path: '/trips/:id/chat', component: ChatView, name: 'chat', meta:{ requiresAuth:true } },
     { path: '/trips/:id/ride', component: RideView, name: 'ride', meta:{ requiresAuth:true } },
     { path: '/orders/:id', component: OrderView, name: 'order', meta:{ requiresAuth:true } },
+    { path: '/trips/:id/fare-plan', component: FarePlanView, name: 'fare-plan', meta:{ requiresAuth:true } },
     { path: '/orders/:id/review', component: ReviewView, name: 'review', meta:{ requiresAuth:true } },
     { path: '/profile', component: ProfileView, name: 'profile' },
+    { path: '/disclaimer', component: DisclaimerView, name: 'disclaimer' },
     { path: '/sos', component: SosView, name: 'sos', meta: { requiresAuth: true } },
   ],
 })

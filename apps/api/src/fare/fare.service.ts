@@ -59,6 +59,9 @@ export class FareService {
       screenshotAvailable: true,
       createdAt: order.createdAt.toISOString(),
       confirmedAt: order.confirmedAt ? order.confirmedAt.toISOString() : null,
+      // 阶段 3：截图留存。确认后设 90 天后删除；争议时清空、结案后从 resolvedAt 重计。前端据此展示留存状态。
+      retentionDeleteAfter: order.retentionDeleteAfter ? order.retentionDeleteAfter.toISOString() : null,
+      screenshotDeletedAt: order.screenshotDeletedAt ? order.screenshotDeletedAt.toISOString() : null,
       costShare: {
         mode: 'EQUAL' as const,
         amountCents: order.totalAmountCents,

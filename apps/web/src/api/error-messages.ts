@@ -47,6 +47,18 @@ const ERROR_MESSAGES: Record<string, string> = {
   SCREENSHOT_SIZE_INVALID: '截图大小不能超过 10MB',
   PLATE_REQUIRED: '请填写车牌号',
 
+  // 费用方案修订（阶段 2）
+  ONLY_CREATOR_CAN_CHANGE_FARE_PLAN: '只有发单人可以发起费用方案变更',
+  FARE_PLAN_CHANGE_NOT_ALLOWED: '当前状态不允许变更费用方案',
+  FARE_PLAN_CHANGE_ALREADY_PENDING: '已有进行中的费用变更申请',
+  FARE_PLAN_CHANGE_REQUEST_NOT_FOUND: '费用变更申请不存在',
+  FARE_PLAN_CHANGE_ALREADY_RESOLVED: '该费用变更申请已结束',
+  FARE_PLAN_CHANGE_EXPIRED: '费用变更申请已过期，原方案保持不变',
+  FARE_PLAN_MODE_INVALID: '费用方案模式无效',
+  FARE_PLAN_PERCENT_TOTAL_INVALID: '自定义分摊比例之和必须为 100',
+  TRIP_NOT_FORMED: '行程尚未成团',
+  SCREENSHOT_RETENTION_EXPIRED: '截图已过期或已删除，无法查看',
+
   // 聊天
   MESSAGE_TEXT_REQUIRED: '请输入消息内容',
   MESSAGE_TEXT_TOO_LONG: '消息长度不能超过 500 字',
