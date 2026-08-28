@@ -4,14 +4,19 @@ import { FareService } from './fare.service';
 describe('FareService', () => {
   const tx: any = {
     trip: { findUnique: jest.fn(), update: jest.fn() },
-    fareOrder: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    fareOrder: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), findMany: jest.fn() },
     fareOrderConfirmation: { findUnique: jest.fn(), create: jest.fn(), count: jest.fn() },
-    tripMember: { findUnique: jest.fn() },
-    fareDispute: { create: jest.fn(), findFirst: jest.fn() },
+    tripMember: { findUnique: jest.fn(), findMany: jest.fn() },
+    fareDispute: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     paymentMark: { upsert: jest.fn() },
     review: { findUnique: jest.fn(), create: jest.fn() },
     auditLog: { create: jest.fn() },
     objectUpload: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), findMany: jest.fn(), update: jest.fn() },
+    farePlanRevision: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn(), findUnique: jest.fn() },
+    farePlanConfirmation: { updateMany: jest.fn() },
+    farePlanChangeRequest: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
+    farePlanChangeDecision: { findUnique: jest.fn(), create: jest.fn(), findMany: jest.fn() },
+    $queryRaw: jest.fn(),
   };
   const prisma: any = {
     $transaction: jest.fn((fn: any) => fn(tx)),
@@ -327,5 +332,70 @@ describe('FareService', () => {
 
     // 确认只创建了一张订单
     expect(tx.fareOrder.create).toHaveBeenCalledTimes(1);
+  });
+
+  // 阶段 3：截图留存
+  describe('cleanupExpiredBoundScreenshots', () => {
+    it('does not delete on day 89', async () => {
+      const day89 = new Date('2026-11-25T00:00:00.000Z'); // ~89 days after Aug 27
+      const order = { id: 'fo-1', tripId: 't1', screenshotKey: 'key-1', status: 'CONFIRMED', retentionDeleteAfter: new Date('2026-11-26T00:00:00.000Z'), screenshotDeletedAt: null };
+      prisma.fareOrder.findMany = jest.fn().mockResolvedValue([order]);
+      tx.fareOrder.findUnique.mockResolvedValue(order);
+      tx.fareDispute.findFirst.mockResolvedValue(null);
+      storage.deleteObject.mockResolvedValue(undefined);
+      const result = await service.cleanupExpiredBoundScreenshots(day89);
+      expect(result).toBe(0);
+      expect(storage.deleteObject).not.toHaveBeenCalled();
+    });
+
+    it('deletes on day 90 and marks screenshotDeletedAt', async () => {
+      const day90 = new Date('2026-11-27T00:00:00.000Z'); // ~92 days after, past retentionDeleteAfter
+      const order = { id: 'fo-1', tripId: 't1', screenshotKey: 'key-1', status: 'CONFIRMED', retentionDeleteAfter: new Date('2026-11-26T00:00:00.000Z'), screenshotDeletedAt: null };
+      prisma.fareOrder.findMany = jest.fn().mockResolvedValue([order]);
+      tx.fareOrder.findUnique.mockResolvedValue(order);
+      tx.fareDispute.findFirst.mockResolvedValue(null);
+      storage.deleteObject.mockResolvedValue(undefined);
+      tx.fareOrder.update.mockResolvedValue({ ...order, screenshotDeletedAt: day90 });
+      const result = await service.cleanupExpiredBoundScreenshots(day90);
+      expect(result).toBe(1);
+      expect(storage.deleteObject).toHaveBeenCalledWith('key-1');
+      expect(tx.fareOrder.update).toHaveBeenCalledWith(expect.objectContaining({ data: { screenshotDeletedAt: day90 } }));
+    });
+
+    it('does not delete when dispute is open', async () => {
+      const now = new Date('2026-12-01T00:00:00.000Z');
+      const order = { id: 'fo-1', tripId: 't1', screenshotKey: 'key-1', status: 'DISPUTED', retentionDeleteAfter: new Date('2026-08-27T00:00:00.000Z'), screenshotDeletedAt: null };
+      prisma.fareOrder.findMany = jest.fn().mockResolvedValue([order]);
+      tx.fareOrder.findUnique.mockResolvedValue(order);
+      tx.fareDispute.findFirst.mockResolvedValue({ id: 'd-1', status: 'OPEN' });
+      const result = await service.cleanupExpiredBoundScreenshots(now);
+      expect(result).toBe(0);
+      expect(storage.deleteObject).not.toHaveBeenCalled();
+    });
+
+    it('is idempotent: already deleted returns 0', async () => {
+      const now = new Date('2026-12-01T00:00:00.000Z');
+      const order = { id: 'fo-1', tripId: 't1', screenshotKey: 'key-1', status: 'CONFIRMED', retentionDeleteAfter: new Date('2026-08-27T00:00:00.000Z'), screenshotDeletedAt: now };
+      prisma.fareOrder.findMany = jest.fn().mockResolvedValue([]); // already deleted, not returned by query
+      const result = await service.cleanupExpiredBoundScreenshots(now);
+      expect(result).toBe(0);
+      expect(storage.deleteObject).not.toHaveBeenCalled();
+    });
+  });
+
+  // 阶段 3：争议结案重计时
+  describe('resolveFareDisputeForRetention', () => {
+    it('resolves disputes and recalculates retention from resolvedAt', async () => {
+      const resolvedAt = new Date('2026-10-01T00:00:00.000Z');
+      const order = { id: 'fo-1', tripId: 't1', status: 'DISPUTED' };
+      tx.fareOrder.findUnique.mockResolvedValue(order);
+      tx.fareDispute.findMany.mockResolvedValue([{ id: 'd-1', fareOrderId: 'fo-1', status: 'OPEN' }]);
+      tx.fareDispute.update.mockResolvedValue({ id: 'd-1', status: 'RESOLVED', resolvedAt });
+      tx.fareOrder.update.mockResolvedValue({ ...order, status: 'CONFIRMED', retentionDeleteAfter: new Date('2026-10-01T00:00:00.000Z').getTime() + 90 * 24 * 60 * 60 * 1000 });
+      const result = await service.resolveFareDisputeForRetention('fo-1', 'admin-1', resolvedAt);
+      expect(result.resolvedCount).toBe(1);
+      expect(tx.fareDispute.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'RESOLVED', resolvedAt } }));
+      expect(tx.fareOrder.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'CONFIRMED', retentionDeleteAfter: expect.any(Date) }) }));
+    });
   });
 });

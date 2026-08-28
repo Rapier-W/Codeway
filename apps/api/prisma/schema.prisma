@@ -185,6 +185,9 @@ model FareOrder {
   status               String   @default("PENDING_CONFIRMATION") // PENDING_CONFIRMATION | CONFIRMED | DISPUTED | MANUAL_REVIEW
   createdAt            DateTime @default(now())
   confirmedAt          DateTime?
+  // 阶段 3：截图留存。确认后设 90 天后删除，争议时清空，结案后从 resolvedAt 重计。
+  retentionDeleteAfter DateTime?
+  screenshotDeletedAt  DateTime?
   updatedAt            DateTime @updatedAt
   requestKey           String?  @unique @map("request_key")
   sourceUploadId       String?  @unique @map("source_upload_id")
@@ -201,6 +204,8 @@ model FareDispute {
   raisedBy    String
   reason      String
   status      String   @default("OPEN")
+  // 阶段 3：争议结案时间，用于截图留存重计时。
+  resolvedAt  DateTime?
   createdAt   DateTime @default(now())
 }
 

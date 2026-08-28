@@ -11,6 +11,8 @@ import { CreateFareScreenshotUploadDto } from './dto/create-fare-screenshot-uplo
 
 const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
 const CONFIRMATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+// 阶段 3：已确认订单截图保留 90 天，有争议则延长保留。
+const RETENTION_DAYS = 90;
 const MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -284,7 +286,7 @@ export class FareService {
       const confirmation = await client.fareOrderConfirmation.create({ data: { fareOrderId, userId } });
       const confirmedCount = await client.fareOrderConfirmation.count({ where: { fareOrderId } });
       if (confirmedCount >= (trip.members ?? []).length) {
-        const confirmed = await client.fareOrder.update({ where: { id: fareOrderId }, data: { status: 'CONFIRMED', confirmedAt: new Date() } });
+        const confirmed = await client.fareOrder.update({ where: { id: fareOrderId }, data: { status: 'CONFIRMED', confirmedAt: new Date(), retentionDeleteAfter: new Date(Date.now() + RETENTION_DAYS * 24 * 60 * 60 * 1000) } });
         // 费用全员确认是结算状态机的唯一推进点：先完成结算，再开放评价窗口。
         if (trip.status === TripStatus.PENDING_SETTLEMENT) {
           if (!canTransition(trip.status, TripStatus.SETTLED) || !canTransition(TripStatus.SETTLED, TripStatus.PENDING_REVIEW)) {
@@ -319,7 +321,7 @@ export class FareService {
         throw new ConflictException('FARE_CONFIRMATION_WINDOW_EXPIRED');
       }
       const dispute = await client.fareDispute.create({ data: { fareOrderId, raisedBy: userId, reason, status: 'OPEN' } });
-      const updated = await client.fareOrder.update({ where: { id: order.id }, data: { status: 'DISPUTED' } });
+      const updated = await client.fareOrder.update({ where: { id: order.id }, data: { status: 'DISPUTED', retentionDeleteAfter: null } });
       await client.trip.update({ where: { id: trip.id }, data: { status: 'ORDER_DISPUTED', disputeLocked: true, version: { increment: 1 } } });
       await this.audit(client, trip.id, userId, 'fare-dispute', { fareOrderId, disputeId: dispute.id });
       return { fareOrder: updated, dispute, locked: true, duplicate: false };
@@ -370,5 +372,84 @@ export class FareService {
 
   private async audit(client: any, tripId: string, actorId: string, action: string, payload: any) {
     if (client.auditLog?.create) await client.auditLog.create({ data: { tripId, actorId, action, payload } });
+  }
+
+  /**
+   * 阶段 3：清理已确认且过期的订单截图。
+   * 只删除 retentionDeleteAfter 已到期的已确认订单截图，先删对象再标记删除时间。
+   * 有开放争议的订单跳过。已删的订单幂等返回 0。
+   */
+  async cleanupExpiredBoundScreenshots(now: Date): Promise<number> {
+    const candidates = await this.prisma.fareOrder.findMany({
+      where: {
+        retentionDeleteAfter: { lte: now },
+        screenshotDeletedAt: null,
+        status: { in: ['CONFIRMED', 'MANUAL_REVIEW'] },
+      },
+    });
+
+    let cleaned = 0;
+    for (const order of candidates) {
+      const removed = await this.tx(async client => {
+        if (client.$queryRaw) await client.$queryRaw`SELECT id FROM "FareOrder" WHERE id = ${order.id} FOR UPDATE`;
+        const locked = await client.fareOrder.findUnique({ where: { id: order.id } });
+        if (!locked || locked.screenshotDeletedAt) return false;
+
+        // 有开放争议时跳过删除
+        const openDispute = await client.fareDispute.findFirst({ where: { fareOrderId: order.id, status: 'OPEN' } });
+        if (openDispute) return false;
+
+        if (!locked.retentionDeleteAfter || new Date(locked.retentionDeleteAfter) > now) return false;
+
+        try {
+          await this.storage.deleteObject(locked.screenshotKey);
+        } catch {
+          await this.audit(client, locked.tripId, '', 'fare-screenshot-retention-delete-failed', {
+            fareOrderId: locked.id, objectKey: locked.screenshotKey, error: 'STORAGE_DELETE_FAILED',
+          });
+          return false;
+        }
+
+        await client.fareOrder.update({
+          where: { id: order.id },
+          data: { screenshotDeletedAt: now },
+        });
+        await this.audit(client, locked.tripId, '', 'fare-screenshot-retention-deleted', {
+          fareOrderId: locked.id, deletedAt: now.toISOString(),
+        });
+        return true;
+      });
+      if (removed) cleaned += 1;
+    }
+    return cleaned;
+  }
+
+  /**
+   * 阶段 3：结案争议并重计截图留存。
+   * 从 resolvedAt 起重新计 90 天删除时间。
+   */
+  async resolveFareDisputeForRetention(fareOrderId: string, actorId: string, resolvedAt: Date) {
+    return this.tx(async client => {
+      const order = await client.fareOrder.findUnique({ where: { id: fareOrderId } });
+      if (!order) throw new NotFoundException('FARE_ORDER_NOT_FOUND');
+
+      const disputes = await client.fareDispute.findMany({ where: { fareOrderId, status: 'OPEN' } });
+      for (const d of disputes) {
+        await client.fareDispute.update({ where: { id: d.id }, data: { status: 'RESOLVED', resolvedAt } });
+      }
+
+      // 从结案时间起重新计 90 天
+      const newRetention = new Date(resolvedAt.getTime() + RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      const updated = await client.fareOrder.update({
+        where: { id: fareOrderId },
+        data: { retentionDeleteAfter: newRetention, status: order.status === 'DISPUTED' ? 'CONFIRMED' : order.status },
+      });
+
+      await this.audit(client, order.tripId, actorId, 'fare-dispute-resolved', {
+        fareOrderId, resolvedAt: resolvedAt.toISOString(), newRetention: newRetention.toISOString(),
+      });
+
+      return { fareOrder: updated, resolvedCount: disputes.length };
+    });
   }
 }
