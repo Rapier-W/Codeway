@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { SmsService } from './sms.service';
+import { WechatService } from './wechat.service';
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const COOKIE_NAME = 'tongluxing_session';
@@ -11,6 +12,7 @@ export class AuthService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sms: SmsService,
+    private readonly wechat: WechatService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -87,6 +89,38 @@ export class AuthService implements OnModuleInit {
       return null;
     }
     return session.user;
+  }
+
+  /**
+   * 微信小程序登录：用 wx.login 的 code 换取 openid，创建/查找用户，创建会话。
+   * 不需要短信验证码，个人小程序即可使用。
+   */
+  async wechatLogin(code: string, requestInfo?: { ip?: string; userAgent?: string }) {
+    const { openid, sessionKey } = await this.wechat.code2session(code);
+    const userId = this.wechat.openidToUserId(openid);
+
+    // 用 openid 哈希作为用户 ID，sessionKey 存在用户记录里（后续解密手机号用）
+    const user = await this.prisma.user.upsert({
+      where: { id: userId },
+      create: { id: userId, phoneVerified: false },
+      update: {},
+    });
+
+    // 创建会话
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = this.hashToken(token);
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+    await this.prisma.session.create({
+      data: {
+        userId: user.id,
+        token: tokenHash,
+        ipAddress: requestInfo?.ip ?? null,
+        userAgent: requestInfo?.userAgent ?? null,
+        expiresAt,
+      },
+    });
+
+    return { user: { id: user.id, nickname: user.nickname, phoneVerified: user.phoneVerified }, token, cookieOptions: this.buildCookieOptions(expiresAt) };
   }
 
   /**

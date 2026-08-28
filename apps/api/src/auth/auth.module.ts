@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthGuard } from './auth.guard';
 import { SmsService } from './sms.service';
+import { WechatService } from './wechat.service';
 
 @Module({
   imports: [
@@ -18,10 +19,11 @@ import { SmsService } from './sms.service';
   providers: [
     AuthService,
     SmsService,
+    WechatService,
     PrismaService,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
-  exports: [AuthService, SmsService],
+  exports: [AuthService, SmsService, WechatService],
 })
 export class AuthModule {}

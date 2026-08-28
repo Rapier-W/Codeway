@@ -16,7 +16,7 @@ describe('AuthService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AuthService(prisma, smsService as any);
+    service = new AuthService(prisma, smsService as any, {} as any);
   });
 
   it('requests a code via SmsService', async () => {
@@ -70,7 +70,7 @@ describe('AuthService', () => {
 
   it('returns a fallback user in mock/test environments without user.findUnique', async () => {
     const mockPrisma: any = { user: {}, session: {} };
-    const mockService = new AuthService(mockPrisma, smsService as any);
+    const mockService = new AuthService(mockPrisma, smsService as any, {} as any);
     const result = await mockService.getUserById('test-user');
     expect(result).toEqual({ id: 'test-user', phoneVerified: true });
   });

@@ -4,6 +4,7 @@ import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { SendSmsDto } from './dto/send-sms.dto';
 import { VerifySmsDto } from './dto/verify-sms.dto';
+import { WechatLoginDto } from './dto/wechat-login.dto';
 import { Public } from './public.decorator';
 
 @Controller('auth')
@@ -36,6 +37,21 @@ export class AuthController {
     const { user, token, cookieOptions } = await this.auth.verifyCode(dto.phone, dto.code, { ip, userAgent });
     res.cookie(this.auth.cookieName, token, cookieOptions);
     return { id: user.id, nickname: user.nickname, phoneVerified: user.phoneVerified };
+  }
+
+  /**
+   * 微信小程序登录：用 wx.login 的 code 换取身份，创建会话。
+   * 不需要短信验证码，个人小程序即可使用。
+   */
+  @Public()
+  @Throttle({ auth: { limit: 10, ttl: 60_000 } })
+  @Post('wechat-login')
+  async wechatLogin(@Body() dto: WechatLoginDto, @Req() req: any, @Res({ passthrough: true }) res: Response) {
+    const ip = req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim();
+    const userAgent = req.headers['user-agent'];
+    const { user, token, cookieOptions } = await this.auth.wechatLogin(dto.code, { ip, userAgent });
+    res.cookie(this.auth.cookieName, token, cookieOptions);
+    return user;
   }
 
   /**
