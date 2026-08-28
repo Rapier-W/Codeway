@@ -1,5 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import * as crypto from 'crypto';
+const codeHash = (c: string) => crypto.createHash('sha256').update(c).digest('hex');
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
 import { AppModule } from '../src/app.module';
@@ -25,7 +27,7 @@ describe('Auth API (e2e)', () => {
         findFirst: jest.fn().mockResolvedValue(null),
         count: jest.fn().mockResolvedValue(0),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-        create: jest.fn().mockResolvedValue({ id: 'c1', code: '123456', status: 'PENDING' }),
+        create: jest.fn().mockResolvedValue({ id: 'c1', code: codeHash('123456'), status: 'PENDING' }),
         update: jest.fn().mockResolvedValue({ status: 'VERIFIED' }),
       },
       trip: {
@@ -54,7 +56,7 @@ describe('Auth API (e2e)', () => {
 
   it('verifies the code, returns the user, and sets an HttpOnly cookie', async () => {
     prismaMock.smsCode.findFirst.mockResolvedValueOnce({
-      id: 'c1', phone: '13800000000', code: '123456', status: 'PENDING',
+      id: 'c1', phone: '13800000000', code: codeHash('123456'), status: 'PENDING',
       attemptCount: 0, expiresAt: new Date(Date.now() + 60_000),
     });
 
@@ -101,7 +103,7 @@ describe('Auth API (e2e)', () => {
 
   it('sets HttpOnly + SameSite=Lax and omits Secure outside production', async () => {
     prismaMock.smsCode.findFirst.mockResolvedValueOnce({
-      id: 'c1', phone: '13800000000', code: '123456', status: 'PENDING',
+      id: 'c1', phone: '13800000000', code: codeHash('123456'), status: 'PENDING',
       attemptCount: 0, expiresAt: new Date(Date.now() + 60_000),
     });
 

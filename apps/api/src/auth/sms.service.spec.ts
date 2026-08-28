@@ -67,8 +67,11 @@ describe('SmsService', () => {
   });
 
   it('verifies a correct code and marks it as consumed', async () => {
+    // 阶段 5：验证码只存哈希，mock 返回的 code 字段是 SHA-256('123456')
+    const crypto = require('crypto');
+    const codeHash = crypto.createHash('sha256').update('123456').digest('hex');
     prisma.smsCode.findFirst.mockResolvedValue({
-      id: 'c1', phone: '13800000000', code: '123456', status: 'PENDING',
+      id: 'c1', phone: '13800000000', code: codeHash, status: 'PENDING',
       attemptCount: 0, expiresAt: new Date(Date.now() + 60_000),
     });
     prisma.smsCode.update.mockResolvedValue({ status: 'VERIFIED' });
@@ -81,8 +84,10 @@ describe('SmsService', () => {
   });
 
   it('rejects an incorrect code and increments attempt count', async () => {
+    const crypto = require('crypto');
+    const codeHash = crypto.createHash('sha256').update('123456').digest('hex');
     prisma.smsCode.findFirst.mockResolvedValue({
-      id: 'c1', phone: '13800000000', code: '123456', status: 'PENDING',
+      id: 'c1', phone: '13800000000', code: codeHash, status: 'PENDING',
       attemptCount: 0, expiresAt: new Date(Date.now() + 60_000),
     });
     prisma.smsCode.update.mockResolvedValue({});
@@ -94,8 +99,10 @@ describe('SmsService', () => {
   });
 
   it('rejects an expired code', async () => {
+    const crypto = require('crypto');
+    const codeHash = crypto.createHash('sha256').update('123456').digest('hex');
     prisma.smsCode.findFirst.mockResolvedValue({
-      id: 'c1', phone: '13800000000', code: '123456', status: 'PENDING',
+      id: 'c1', phone: '13800000000', code: codeHash, status: 'PENDING',
       attemptCount: 0, expiresAt: new Date(Date.now() - 1_000),
     });
     prisma.smsCode.update.mockResolvedValue({});
@@ -107,8 +114,10 @@ describe('SmsService', () => {
   });
 
   it('rejects after exceeding max attempts', async () => {
+    const crypto = require('crypto');
+    const codeHash = crypto.createHash('sha256').update('123456').digest('hex');
     prisma.smsCode.findFirst.mockResolvedValue({
-      id: 'c1', phone: '13800000000', code: '123456', status: 'PENDING',
+      id: 'c1', phone: '13800000000', code: codeHash, status: 'PENDING',
       attemptCount: 5, expiresAt: new Date(Date.now() + 60_000),
     });
     prisma.smsCode.update.mockResolvedValue({});

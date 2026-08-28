@@ -69,8 +69,10 @@ export class SmsService {
     const code = this.generateCode();
     const expiresAt = new Date(Date.now() + CODE_TTL_MS);
 
+    // 阶段 5：验证码只保存 SHA-256 哈希，数据库泄露不能重放。
+    const codeHash = this.hashCode(code);
     await this.prisma.smsCode.create({
-      data: { phone, code, status: 'PENDING', requestIp: requestIp ?? null, expiresAt },
+      data: { phone, code: codeHash, status: 'PENDING', requestIp: requestIp ?? null, expiresAt },
     });
 
     if (this.isDevMode) {
@@ -111,7 +113,7 @@ export class SmsService {
       throw new ConflictException('MAX_ATTEMPTS_EXCEEDED');
     }
 
-    if (!this.timingSafeCodeEquals(record.code, code)) {
+    if (!this.timingSafeCodeEquals(this.hashCode(code), record.code)) {
       if (this.prisma.smsCode?.update) {
         await this.prisma.smsCode.update({
           where: { id: record.id },
@@ -137,8 +139,12 @@ export class SmsService {
     return String(crypto.randomInt(0, 10 ** CODE_LENGTH)).padStart(CODE_LENGTH, '0');
   }
 
+  private hashCode(code: string): string {
+    return crypto.createHash('sha256').update(code).digest('hex');
+  }
+
   /**
-   * Constant-time comparison of the stored code and the user-supplied code to
+   * Constant-time comparison of the stored hash and the user-supplied code's hash.
    * avoid timing side-channels. Both inputs are guaranteed to be 6 ASCII digits
    * at this point (validated above), so the length guard only prevents a
    * thrown error from timingSafeEqual.
