@@ -58,8 +58,12 @@ describe('storage provider configuration', () => {
     QINIU_KODO_SECRET_KEY: 'secret-key',
   };
 
-  it('uses an explicit in-memory provider outside production', () => {
-    expect(createObjectStorageProvider({ ...completeConfig, NODE_ENV: 'test' })).toBeInstanceOf(InMemoryObjectStorageProvider);
+  it('uses Kodo when fully configured, even outside production', () => {
+    expect(createObjectStorageProvider({ ...completeConfig, NODE_ENV: 'test' })).toBeInstanceOf(KodoObjectStorageProvider);
+  });
+
+  it('falls back to in-memory when Kodo is not configured outside production', () => {
+    expect(createObjectStorageProvider({ NODE_ENV: 'test' })).toBeInstanceOf(InMemoryObjectStorageProvider);
   });
 
   it('fails closed when production Kodo configuration is incomplete', async () => {

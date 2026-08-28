@@ -7,12 +7,13 @@ import { UnconfiguredObjectStorageProvider } from './unconfigured-object-storage
 export function createObjectStorageProvider(env: NodeJS.ProcessEnv = process.env) {
   const complete = ['QINIU_KODO_BUCKET', 'QINIU_KODO_UPLOAD_HOST', 'QINIU_KODO_DOWNLOAD_HOST', 'QINIU_KODO_ACCESS_KEY', 'QINIU_KODO_SECRET_KEY']
     .every((key) => Boolean(env[key]?.trim()));
-  if (env.NODE_ENV !== 'production') return new InMemoryObjectStorageProvider();
-  if (!complete) return new UnconfiguredObjectStorageProvider();
-  return new KodoObjectStorageProvider({
+  // 配齐了 Kodo 环境变量就用真实 Kodo（不管是不是生产环境），否则开发环境用 InMemory，生产环境未配置时 fail-closed。
+  if (complete) return new KodoObjectStorageProvider({
     bucket: env.QINIU_KODO_BUCKET!, uploadHost: env.QINIU_KODO_UPLOAD_HOST!, downloadHost: env.QINIU_KODO_DOWNLOAD_HOST!,
     accessKey: env.QINIU_KODO_ACCESS_KEY!, secretKey: env.QINIU_KODO_SECRET_KEY!,
   });
+  if (env.NODE_ENV === 'production') return new UnconfiguredObjectStorageProvider();
+  return new InMemoryObjectStorageProvider();
 }
 
 @Module({
