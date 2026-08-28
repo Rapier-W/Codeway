@@ -27,6 +27,17 @@ npm test -- --runInBand --no-cache
 Pop-Location
 ```
 
-当前 `docker-compose.yml` 仅是 PostgreSQL 开发数据库基线，不能作为生产部署清单。实现 `apps/web` 和 API 容器化后，生产 Compose 必须包含 `nginx`、`web`、`api`、`postgres` 四项服务：Nginx 仅暴露 80/443 并反向代理 `/api`、`/socket.io`；API 与 PostgreSQL 仅加入 Docker 内部网络，3000/5432 不开放公网。
+## 生产部署（阶段 8/9/10 已落地）
 
-正式域名和 ICP 备案当前暂缓；公网发布前必须补齐 HTTPS、域名、隐私政策、短信签名审核、CORS/Allowed Origins 与 Cookie 域/`Secure` 属性验证。生产环境必须使用 HTTPS、反向代理、日志脱敏、私有 Kodo 桶和数据库备份/恢复演练。`SKIP_DB_CONNECT=true` 只用于无数据库的启动 smoke，生产不得设置。
+`docker-compose.yml` 仍只作为 PostgreSQL **开发** 数据库基线。生产部署清单与配套文件已新增：
+
+- `docker-compose.prod.yml`：Nginx（边缘）+ NestJS API + PostgreSQL，三者仅处于内部网络 `appnet`，只有 Nginx 暴露 80/443；API 与 PG 不开放公网。API 启动时自动 `prisma migrate deploy`。
+- `apps/api/Dockerfile`（多阶段构建）+ `apps/api/docker-entrypoint.sh`（migrate deploy → 启动）。
+- `deploy/nginx.Dockerfile`（构建 Vue PWA 静态 + nginx）、`deploy/nginx.conf`（HTTPS 强制 + 反代 `/api` + SPA 回退）、`deploy/nginx.http-only.conf`（备案前临时试点，仅 HTTP）。
+- `deploy/.env.prod.example`：生产环境变量模板（仅含 API 实际读取的变量）。
+- `scripts/db-backup.sh` / `scripts/db-restore.sh`：PostgreSQL 逻辑备份与恢复（保留 14 天，恢复需二次确认）。
+- `deploy/runbook.md`：迁移/回滚、备份恢复、监控告警、限流安全自查、HTTPS/域名/ICP 核查清单、排障。
+
+Cookie 跨站策略已在 `auth.service.buildCookieOptions` 支持 `COOKIE_SAME_SITE` 与 `COOKIE_DOMAIN` 环境变量（同域保持 `lax`+`secure`，跨域才需 `none`+显式 domain）。
+
+正式域名和 ICP 备案当前暂缓；公网发布前必须补齐 HTTPS、域名、隐私政策、短信签名审核、CORS/Allowed Origins 与 Cookie 域/`Secure` 属性验证（详见 `deploy/runbook.md` §8 核查清单）。生产环境必须使用 HTTPS、反向代理、日志脱敏、私有 Kodo 桶和数据库备份/恢复演练。`SKIP_DB_CONNECT=true` 只用于无数据库的启动 smoke，生产不得设置。

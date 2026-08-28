@@ -1,0 +1,14 @@
+# 构建上下文排除项：避免把依赖、产物、密钥、大目录打进镜像
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.env
+.env.*
+deploy/.env.prod
+deploy/certs
+deploy/www
+*.log
+.github
+coverage

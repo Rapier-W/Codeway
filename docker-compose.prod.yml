@@ -1,0 +1,85 @@
+# 生产部署清单：Nginx(边缘) + NestJS API + PostgreSQL
+# 安全边界：仅 Nginx 暴露 80/443；api 与 postgres 仅处于内部网络 appnet，不开放公网。
+#
+# 使用步骤：
+#   1) cp deploy/.env.prod.example deploy/.env.prod 并填入真实值（切勿提交 .env.prod）
+#   2) 证书就绪后放到 deploy/certs/（见 deploy/nginx.conf 头部）
+#   3) docker compose -f docker-compose.prod.yml up -d --build
+#
+# 备案/证书就绪前的临时试点：把 nginx 服务的挂载改为
+#   - ./deploy/nginx.http-only.conf:/etc/nginx/conf.d/default.conf:ro
+# 并移除下方两条 certs / certbot 挂载。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tongluxing-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tongluxing}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?必须在 deploy/.env.prod 设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-tongluxing}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - appnet
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # 不映射公网端口；仅 api 通过内部网络访问。
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: tongluxing-api-prod
+    restart: unless-stopped
+    env_file:
+      - deploy/.env.prod
+    environment:
+      # 容器内通过服务名解析数据库；覆盖 .env.prod 中的 host 部分。
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tongluxing}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tongluxing}?schema=public
+      NODE_ENV: production
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - appnet
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  nginx:
+    build:
+      context: .
+      dockerfile: deploy/nginx.Dockerfile
+    container_name: tongluxing-nginx-prod
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # 运行时挂载配置，便于在不重建镜像的情况下切换 HTTPS / http-only。
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # 证书缺失时改用 deploy/nginx.http-only.conf，并移除下方两条 certs / certbot 挂载。
+      - ./deploy/certs:/etc/nginx/certs:ro
+      - ./deploy/www/certbot:/var/www/certbot:ro
+    networks:
+      - appnet
+
+networks:
+  appnet:
+    driver: bridge
+
+volumes:
+  pgdata:

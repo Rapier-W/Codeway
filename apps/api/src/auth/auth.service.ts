@@ -159,13 +159,19 @@ export class AuthService implements OnModuleInit {
 
   private buildCookieOptions(expiresAt: Date) {
     const isProduction = process.env.NODE_ENV === 'production';
+    // 跨站策略：默认 lax（同域 Nginx 反代场景最安全，可防 CSRF）；
+    // 若 API 与前端跨域部署（如不同子域/独立 API 域名）需设为 none，此时必须 secure。
+    const requestedSameSite = (process.env.COOKIE_SAME_SITE || 'lax').toLowerCase();
+    const sameSite: 'lax' | 'strict' | 'none' = requestedSameSite === 'none' ? 'none' : requestedSameSite === 'strict' ? 'strict' : 'lax';
+    const secure = isProduction || sameSite === 'none';
     return {
       httpOnly: true,
-      secure: isProduction,
-      sameSite: 'lax' as const,
+      secure,
+      sameSite,
       path: '/',
       expires: expiresAt,
       maxAge: SESSION_TTL_MS / 1000,
+      domain: process.env.COOKIE_DOMAIN || undefined,
     };
   }
 }
