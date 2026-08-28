@@ -11,9 +11,19 @@ export class PlatformService {
   // 同一行程的写入会在行锁上短暂排队；给状态机事务足够时间取得连接和行锁，避免把可序列化竞争误报为 500。
   private async stateTx<T>(fn: (tx: any) => Promise<T>) {
     try {
-      return await this.prisma.$transaction(fn, { maxWait: 10_000, timeout: 10_000 });
+      return await this.prisma.$transaction(async (tx: any) => {
+        // 在事务内设短锁超时，让锁竞争快速失败而不是等 10 秒。
+        const lockTimeoutMs = Number(process.env.POSTGRES_LOCK_TIMEOUT_MS ?? 3000);
+        if (tx.$executeRawUnsafe) {
+          await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = ${lockTimeoutMs}`);
+        }
+        return fn(tx);
+      }, { maxWait: 10_000, timeout: 10_000 });
     } catch (error: any) {
-      if (error?.code === 'P2028' || error?.code === 'P2024') {
+      // P2028: transaction timeout; P2024: operation timeout
+      // P2010: raw query failed（$queryRaw 的锁超时会被 Prisma 包装成 P2010，原始 SQLSTATE 在 message 里）
+      const msg = String(error?.message ?? '');
+      if (error?.code === 'P2028' || error?.code === 'P2024' || error?.code === 'P2010' && msg.includes('55P03') || msg.includes('lock timeout')) {
         throw new ServiceUnavailableException('RIDE_STATE_BUSY');
       }
       throw error;

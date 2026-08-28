@@ -53,42 +53,28 @@ describe('PostgreSQL lock contention (real database)', () => {
     // 把行程状态推进到 FORMED，这样 openRide 才会尝试锁定
     await prisma.trip.update({ where: { id: fixture.tripId }, data: { status: 'FORMED' } });
 
-    // 用第二个连接持有行锁，模拟并发竞争
-    let releaseLock: () => void = () => {};
-    const lockHeld = new Promise<void>((resolve) => {
-      releaseLock = resolve;
-    });
-
+    // 用第二个连接持有行锁
     const holderPromise = holder.$transaction(async (client) => {
       await client.$queryRawUnsafe('SELECT id FROM trips WHERE id = $1 FOR UPDATE', fixture.tripId);
-      resolveLockHeld();
-      await lockHeld;
+      // 持有锁 5 秒，足够让并发请求触发 lock_timeout
+      await new Promise((resolve) => setTimeout(resolve, 5000));
     });
 
-    // 触发信号让 holder 知道锁已持有
-    function resolveLockHeld() { /* placeholder, replaced below */ }
-
-    // 等待 holder 获取锁
+    // 等 500ms 确保 holder 已获取锁
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // 并发请求应该因为锁竞争而失败
-    // 注意：由于没有在事务里设 lock_timeout，这个请求会等待而不是立即返回 503
-    // 阶段 4 的完整实现需要在 PlatformService 里加 SET LOCAL lock_timeout
-    // 这里先验证：持有锁期间，请求不会成功（超时或等待）
+    // 并发请求应该因为 lock_timeout 返回 503
     const response = await request(app.getHttpServer())
       .post(`/api/trips/${fixture.tripId}/ride/open`)
       .set('x-user-id', fixture.creatorId)
       .set('Idempotency-Key', fixture.idempotencyKey('ride-locked'))
-      .send({ platform: 'amap' })
-      .timeout(2000)
-      .catch((e: any) => ({ status: 0, body: { code: 'TIMEOUT' }, error: e }));
+      .send({ platform: 'amap' });
 
-    // 释放锁
-    releaseLock();
+    // 等待 holder 释放锁
     await holderPromise.catch(() => {});
 
-    // 请求要么超时(0)，要么返回 5xx
-    expect([0, 500, 503].includes(response.status)).toBe(true);
+    expect([503].includes(response.status)).toBe(true);
+    expect(response.body.code).toBe('RIDE_STATE_BUSY');
 
     // 验证没有产生部分写入
     const rideRecords = await prisma.rideRecord.findMany({ where: { tripId: fixture.tripId } });
