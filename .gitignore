@@ -5,6 +5,12 @@ dist/
 !.env.example
 # 部署模板需入库（真实密钥文件 deploy/.env.prod 仍被上面的 .env.* 忽略）
 !deploy/.env.prod.example
+# 证书私钥与 certbot 签发结果绝不入库（明文私钥！）。deploy/certs/ 仅保留 README 与占位。
+deploy/certs/*.pem
+deploy/certs/*.key
+deploy/certs/*.crt
+deploy/www/certbot/*
+!deploy/www/certbot/.gitkeep
 .worktrees/
 coverage/
 apps/api/prisma/dev.db
