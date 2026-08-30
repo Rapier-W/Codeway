@@ -9,11 +9,14 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { configureHttpApp } from '../src/http-app';
 import { PrismaService } from '../src/prisma.service';
+import { cleanupTripFixtures } from './e2e-fixture-cleanup';
 
 jest.setTimeout(60_000);
 
-const phone = '13900000099';
+const runId = Date.now().toString(36);
+const phone = `139${String(Date.now()).slice(-8)}`;
 const userId = `dev-${phone}`;
+const fixturePrefix = `AUTH_E2E_${runId}_`;
 
 describe('PostgreSQL HTTP authentication closure (real database)', () => {
   let app: INestApplication;
@@ -26,21 +29,22 @@ describe('PostgreSQL HTTP authentication closure (real database)', () => {
     await app.init();
     prisma = app.get(PrismaService);
     await prisma.$connect();
-    await prisma.session.deleteMany({ where: { userId } });
-    await prisma.smsCode.deleteMany({ where: { phone } });
-    await prisma.tripMember.deleteMany({ where: { userId } });
-    await prisma.trip.deleteMany({ where: { creatorId: userId } });
-    await prisma.user.deleteMany({ where: { id: userId } });
   });
 
   afterAll(async () => {
-    await prisma?.session.deleteMany({ where: { userId } });
-    await prisma?.smsCode.deleteMany({ where: { phone } });
-    await prisma?.tripMember.deleteMany({ where: { userId } });
-    await prisma?.trip.deleteMany({ where: { creatorId: userId } });
-    await prisma?.user.deleteMany({ where: { id: userId } });
-    await prisma?.$disconnect();
-    await app?.close();
+    try {
+      if (prisma) {
+        const fixtures = await prisma.trip.findMany({ where: { origin: { startsWith: fixturePrefix } }, select: { id: true } });
+        await cleanupTripFixtures(prisma, fixtures.map(item => item.id));
+        await prisma.session.deleteMany({ where: { userId } });
+        await prisma.smsCode.deleteMany({ where: { phone } });
+        await prisma.tripMember.deleteMany({ where: { userId } });
+        await prisma.user.deleteMany({ where: { id: userId } });
+      }
+    } finally {
+      await prisma?.$disconnect();
+      await app?.close();
+    }
   });
 
   it('verifies a seeded code and establishes an HttpOnly session cookie', async () => {
@@ -58,7 +62,7 @@ describe('PostgreSQL HTTP authentication closure (real database)', () => {
     const response = await request(app.getHttpServer())
       .post('/api/trips')
       .set('Cookie', sessionCookie)
-      .send({ origin: '认证起点', destination: '认证终点', departTime: new Date(Date.now() + 3_600_000).toISOString(), capacity: 3 })
+      .send({ origin: `${fixturePrefix}认证起点`, destination: `${fixturePrefix}认证终点`, departTime: new Date(Date.now() + 3_600_000).toISOString(), capacity: 3 })
       .expect(201);
     expect(response.body.creatorId).toBe(userId);
   });

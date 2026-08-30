@@ -14,6 +14,7 @@ import { PlatformService } from '../src/platform/platform.service';
 import { OBJECT_STORAGE_PROVIDER } from '../src/storage/object-storage.provider';
 import { InMemoryObjectStorageProvider } from '../src/storage/in-memory-object-storage.provider';
 import { FareService } from '../src/fare/fare.service';
+import { cleanupTripFixtures } from './e2e-fixture-cleanup';
 
 // Nest + Prisma 在 Windows 本机首次启动可能超过 Jest 默认 5 秒。
 jest.setTimeout(60_000);
@@ -34,41 +35,6 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
   let tripId: string;
   let fareOrderId: string;
   const storage = new InMemoryObjectStorageProvider();
-
-  async function cleanupTripFixtures(ids: string[]) {
-    for (const id of ids) {
-      const orders = await prisma.fareOrder.findMany({ where: { tripId: id }, select: { id: true } });
-      const revisions = await prisma.farePlanRevision.findMany({ where: { tripId: id }, select: { id: true } });
-      const orderIds = orders.map(item => item.id);
-      const revisionIds = revisions.map(item => item.id);
-      if (orderIds.length) {
-        await prisma.review.deleteMany({ where: { tripId: id } });
-        await prisma.paymentMark.deleteMany({ where: { fareOrderId: { in: orderIds } } });
-        await prisma.fareOrderConfirmation.deleteMany({ where: { fareOrderId: { in: orderIds } } });
-        await prisma.fareDispute.deleteMany({ where: { fareOrderId: { in: orderIds } } });
-      }
-      if (revisionIds.length) {
-        await prisma.farePlanChangeDecision.deleteMany({ where: { request: { tripId: id } } });
-        await prisma.farePlanChangeRequest.deleteMany({ where: { tripId: id } });
-        await prisma.farePlanConfirmation.deleteMany({ where: { revisionId: { in: revisionIds } } });
-        await prisma.farePlanRevision.deleteMany({ where: { id: { in: revisionIds } } });
-      }
-      await prisma.fareOrder.deleteMany({ where: { tripId: id } });
-      await prisma.objectUpload.deleteMany({ where: { tripId: id } });
-      await prisma.rideRecord.deleteMany({ where: { tripId: id } });
-      await prisma.vehicleUpdate.deleteMany({ where: { tripId: id } });
-      await prisma.chatMessage.deleteMany({ where: { tripId: id } });
-      await prisma.sosEvent.deleteMany({ where: { tripId: id } });
-      await prisma.recommendationDecision.deleteMany({ where: { tripId: id } });
-      await prisma.report.deleteMany({ where: { tripId: id } });
-      await prisma.notificationEvent.deleteMany({ where: { tripId: id } });
-      await prisma.auditLog.deleteMany({ where: { tripId: id } });
-      await prisma.analyticsEvent.deleteMany({ where: { tripId: id } });
-      await prisma.tripConfirmation.deleteMany({ where: { tripId: id } });
-      await prisma.tripMember.deleteMany({ where: { tripId: id } });
-      await prisma.trip.delete({ where: { id } });
-    }
-  }
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -91,7 +57,7 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
   afterAll(async () => {
     if (prisma) {
       const fixtures = await prisma.trip.findMany({ where: { origin: { startsWith: fixturePrefix } }, select: { id: true } });
-      await cleanupTripFixtures(fixtures.map(item => item.id));
+      await cleanupTripFixtures(prisma, fixtures.map(item => item.id));
     }
     await prisma?.$disconnect(); await app?.close();
   });
