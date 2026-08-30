@@ -27,26 +27,35 @@ docker-compose.yml   PostgreSQL 本地环境
 ## 快速开始
 
 ```bash
-# 后端
-cd apps/api
-cp .env.example .env
-npm install
-npx prisma generate
-npm test -- --runInBand --no-cache    # 8 suites / 31 tests
+# 后端（PowerShell）
+Set-Location apps/api
+Copy-Item .env.example .env
+npm ci
+npm run prisma:generate
+npm test -- --runInBand --no-cache
 npm run start:dev
 
-# Web 前端
-cd apps/web
-npm install
-npm test                              # 12 files / 22 tests
+# Web 前端（PowerShell）
+Set-Location ../web
+npm ci
+npm test
 npm run dev
 ```
 
 ## 测试现状
-- 后端:31 tests 全部通过(含行程容量并发、双向确认 e2e)
-- Web:22 tests 全部通过
+
+以本地新鲜命令输出为准，不在文档中硬编码易过时的测试数量：
+
+- API 单测：`npm test -- --runInBand --no-cache`
+- API PostgreSQL HTTP E2E（需要真实 `DATABASE_URL`）：`npm run test:e2e:postgres`
+- Web 类型检查：`npm run typecheck`
+- Web 测试：`npm test`
+- Web 生产构建：`npm run build`
+
+提交前必须至少运行 API 单测、Prisma 校验、API 构建和 Web 类型检查；真实 PostgreSQL/Kodo/短信联调需在对应环境单独验收。
 
 ## 贡献约定
-- 分支开发:`feature/xxx`、`fix/xxx`;提交信息 `feat:` / `fix:` / `docs:` / `chore:` 前缀
+- 分支开发使用 `codex/`、`reasonix/` 或 `kimi/` 前缀；提交信息使用 `codex:` / `reasonix:` / `kimi:` 前缀
 - 敏感信息(密钥/token)严禁提交,统一放 `.env`(已被 .gitignore 排除)
-- 提交前确保后端 `npm test` 与 Web `npm test` 均通过
+- 微信小程序仍处于规划中，当前交付形态为 Vue 3 Web/PWA + NestJS API。
+- 提交前确保后端 `npm test`、`npm run build` 与 Web `npm run typecheck` 均通过

@@ -13,9 +13,13 @@
 
 必须项：`DATABASE_URL`、`POSTGRES_PASSWORD`、`PORT`、`APP_ORIGIN`、`SESSION_ACCESS_SECRET`、`SESSION_REFRESH_SECRET`。
 
-适配器项：`SMS_ACCESS_KEY`、`SMS_SECRET_KEY`、`SMS_SIGN_NAME`、`SMS_TEMPLATE_ID`、`KODO_BUCKET`、`KODO_ACCESS_KEY`、`KODO_SECRET_KEY`、`VITE_AMAP_BROWSER_KEY`、`AMAP_SERVER_KEY`。未配置时保持手动降级；浏览器 Key 只能配置在高德白名单中的正式/测试域名。
+适配器项以各应用的 `.env.example` 为准：API 使用 `QINIU_ACCESS_KEY`、`QINIU_SECRET_KEY`、`QINIU_SMS_TEMPLATE_ID`、`QINIU_KODO_BUCKET`、`QINIU_KODO_UPLOAD_HOST`、`QINIU_KODO_DOWNLOAD_HOST`、`QINIU_KODO_ACCESS_KEY`、`QINIU_KODO_SECRET_KEY`；Web 使用 `VITE_AMAP_BROWSER_KEY`（见 `apps/web/.env.example`）。未配置时保持手动降级；浏览器 Key 只能配置在高德白名单中的正式/测试域名。
 
-## 发布检查
+## 当前发布边界
+
+仓库当前提供的是本地开发数据库 Compose 基线，不包含可直接上线的 Nginx、Web/API 镜像、TLS 证书目录或生产 Compose 文件。域名解析、ICP备案、证书、七牛云短信/Kodo 凭据、VM 防火墙和备份恢复演练完成前，只能进行受控试点。
+
+## 发布检查（代码侧）
 
 ```powershell
 Push-Location apps/api
@@ -24,6 +28,13 @@ npm run prisma:generate
 npm run prisma:validate
 npm run build
 npm test -- --runInBand --no-cache
+Pop-Location
+
+Push-Location apps/web
+npm ci
+npm run typecheck
+npm test
+npm run build
 Pop-Location
 ```
 
