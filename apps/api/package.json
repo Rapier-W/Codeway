@@ -8,6 +8,7 @@
     "build": "nest build",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",
+    "pretest": "prisma generate",
     "test": "jest --testPathIgnorePatterns=postgres-http.e2e-spec.ts --testPathIgnorePatterns=auth-postgres.e2e-spec.ts",
     "test:e2e:postgres": "jest --runInBand test/postgres-http.e2e-spec.ts test/auth-postgres.e2e-spec.ts",
     "prisma:validate": "prisma validate",
