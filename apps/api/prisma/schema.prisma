@@ -1,7 +1,7 @@
-// 鍚岃矾琛屽悗绔暟鎹簱鍩虹嚎锛圥ostgreSQL锛?
-// 瀹归噺瑙勫垯锛歍rip.capacity 鍙兘鏄?3 鎴?4锛屼笖鎬讳汉鏁板惈鍙戝崟浜恒€?
-// Prisma schema 鏃犳硶琛ㄨ揪 CHECK 绾︽潫锛?|4銆佺姸鎬?瑙掕壊/甯綅鍜屾帹鑽愮悊鐢辨牎楠?
-// 鍦ㄥ簲鐢ㄥ眰涓?prisma/migrations/20260824190000_trip_domain_checks 涓叡鍚屽己鍒躲€?
+// 同路行后端数据库基线（PostgreSQL）。
+// 容量规则：Trip.capacity 只允许 3 或 4，且总人数包含发布者。
+// Prisma schema 无法表达部分 CHECK 约束、状态/角色/席位与推荐理由白名单。
+// 这些规则由 prisma/migrations/20260824190000_trip_domain_checks 与应用层共同强制。
 
 generator client {
   provider = "prisma-client-js"
