@@ -42,3 +42,38 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  postgres-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tongluxing
+          POSTGRES_PASSWORD: ci-password
+          POSTGRES_DB: tongluxing_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U tongluxing -d tongluxing_e2e"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    defaults:
+      run:
+        working-directory: apps/api
+    env:
+      DATABASE_URL: postgresql://tongluxing:ci-password@localhost:5432/tongluxing_e2e?schema=public
+      E2E_DATABASE_URL: postgresql://tongluxing:ci-password@localhost:5432/tongluxing_e2e?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run prisma:validate
+      - run: npx prisma migrate deploy
+      - run: npm run test:e2e:postgres -- --forceExit

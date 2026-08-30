@@ -23,7 +23,7 @@ const memberId = '22222222-2222-4222-8222-222222222222';
 const outsiderId = '33333333-3333-4333-8333-333333333333';
 const runId = Date.now().toString(36);
 const idempotencyKey = (suffix: string) => `pg-${runId}-${suffix}`;
-const fixturePrefix = 'E2E_RUN_';
+const fixturePrefix = `E2E_RUN_${runId}_`;
 
 describe('PostgreSQL HTTP business closure (real database)', () => {
   let app: INestApplication;
@@ -80,8 +80,6 @@ describe('PostgreSQL HTTP business closure (real database)', () => {
     fareService = app.get(FareService);
     throttlerStorage = app.get(ThrottlerStorage);
     await prisma.$connect();
-    const stale = await prisma.trip.findMany({ where: { origin: { startsWith: fixturePrefix } }, select: { id: true } });
-    await cleanupTripFixtures(stale.map(item => item.id));
     await prisma.review.deleteMany({ where: { reviewerId: { in: [creatorId, memberId, outsiderId] } } });
     await prisma.chatMessage.deleteMany({ where: { senderId: { in: [creatorId, memberId, outsiderId] } } });
     await prisma.sosEvent.deleteMany({ where: { userId: { in: [creatorId, memberId, outsiderId] } } });
