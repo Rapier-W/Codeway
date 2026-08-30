@@ -186,6 +186,7 @@ describe('FareService', () => {
     }));
     expect(tx.fareOrder.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
       screenshotKey: activeUpload.objectKey, screenshotMimeType: 'image/png', screenshotSizeBytes: 512,
+      sourceUploadId: activeUpload.id,
     }) }));
   });
 

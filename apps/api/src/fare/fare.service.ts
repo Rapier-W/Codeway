@@ -220,7 +220,7 @@ export class FareService {
         throw new ConflictException(existing.status === 'DISPUTED' ? 'FARE_SETTLEMENT_LOCKED' : 'FARE_ORDER_ALREADY_SUBMITTED');
       }
       try {
-        order = await client.fareOrder.create({ data: { ...data, requestKey: idempotencyKey ?? null, sourceUploadId: idempotencyKey ? dto.screenshotUploadId : null } });
+ order = await client.fareOrder.create({ data: { ...data, requestKey: idempotencyKey ?? null, sourceUploadId: dto.screenshotUploadId } });
       } catch (error: any) {
         if (error?.code !== 'P2002') throw error;
         const raced = idempotencyKey ? await client.fareOrder.findUnique({ where: { requestKey: idempotencyKey } }) : null;
